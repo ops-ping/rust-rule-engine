@@ -55,9 +55,9 @@ pub struct WorkingMemoryFact {
 #[derive(Debug, Clone)]
 pub struct FactMetadata {
     /// When the fact was inserted
-    pub inserted_at: std::time::Instant,
+    pub inserted_at: web_time::Instant,
     /// When the fact was last updated
-    pub updated_at: std::time::Instant,
+    pub updated_at: web_time::Instant,
     /// Number of updates
     pub update_count: usize,
     /// Is this fact retracted?
@@ -66,7 +66,7 @@ pub struct FactMetadata {
 
 impl Default for FactMetadata {
     fn default() -> Self {
-        let now = std::time::Instant::now();
+        let now = web_time::Instant::now();
         Self {
             inserted_at: now,
             updated_at: now,
@@ -173,7 +173,7 @@ impl WorkingMemory {
         }
 
         fact.data = data;
-        fact.metadata.updated_at = std::time::Instant::now();
+        fact.metadata.updated_at = web_time::Instant::now();
         fact.metadata.update_count += 1;
         self.modified_handles.insert(handle);
 

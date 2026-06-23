@@ -11,7 +11,7 @@ use crate::types::{ActionType, Operator, Value};
 use chrono::{DateTime, Utc};
 use log::info;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use web_time::{Duration, Instant};
 
 /// Type for custom function implementations
 pub type CustomFunction = Box<dyn Fn(&[Value], &Facts) -> Result<Value> + Send + Sync>;
@@ -86,7 +86,7 @@ impl RustRuleEngine {
     {
         use chrono::Utc;
         let timestamp = Utc::now();
-        let start_time = std::time::Instant::now();
+        let start_time = web_time::Instant::now();
         let mut cycle_count = 0;
         let mut rules_evaluated = 0;
         let mut rules_fired = 0;
@@ -527,7 +527,7 @@ impl RustRuleEngine {
                         );
                     }
 
-                    let rule_start = std::time::Instant::now();
+                    let rule_start = web_time::Instant::now();
 
                     // Count rule evaluation
                     rules_evaluated += 1;
@@ -1472,7 +1472,7 @@ impl RustRuleEngine {
 
     /// Handle timestamp function
     fn handle_timestamp_function(&self) -> Result<String> {
-        use std::time::{SystemTime, UNIX_EPOCH};
+        use web_time::{SystemTime, UNIX_EPOCH};
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| RuleEngineError::EvaluationError {
@@ -1489,7 +1489,7 @@ impl RustRuleEngine {
 
         // Simple pseudo-random based on current time (for deterministic behavior in tests)
         let mut hasher = DefaultHasher::new();
-        std::time::SystemTime::now().hash(&mut hasher);
+        web_time::SystemTime::now().hash(&mut hasher);
         let random_value = hasher.finish();
 
         if args.is_empty() {

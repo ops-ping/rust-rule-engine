@@ -1,6 +1,6 @@
 use crate::types::Value;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use web_time::{Duration, Instant};
 
 /// Represents the status of a workflow
 #[derive(Debug, Clone, PartialEq)]

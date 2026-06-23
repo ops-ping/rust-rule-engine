@@ -6,7 +6,7 @@ use crate::types::{ActionType, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
-use std::time::{Duration, Instant};
+use web_time::{Duration, Instant};
 
 /// Configuration for parallel rule execution
 #[derive(Debug, Clone)]

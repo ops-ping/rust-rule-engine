@@ -69,7 +69,7 @@ pub struct Activation {
     /// Auto-focus flag
     pub auto_focus: bool,
     /// Creation timestamp (for conflict resolution)
-    pub created_at: std::time::Instant,
+    pub created_at: web_time::Instant,
     /// Number of conditions in the rule (for complexity/simplicity strategies)
     pub condition_count: usize,
     /// Matched fact handle (which fact triggered this activation)
@@ -90,7 +90,7 @@ impl Activation {
             no_loop: true,
             lock_on_active: false,
             auto_focus: false,
-            created_at: std::time::Instant::now(),
+            created_at: web_time::Instant::now(),
             condition_count: 1, // Default to 1
             matched_fact_handle: None,
             id: 0,

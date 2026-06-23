@@ -22,7 +22,7 @@
 
 use super::working_memory::FactHandle;
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
+use web_time::Instant;
 
 /// Type of justification for a fact
 #[derive(Debug, Clone, PartialEq, Eq)]

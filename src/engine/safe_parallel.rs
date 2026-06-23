@@ -3,7 +3,7 @@ use crate::engine::facts::Facts;
 use crate::engine::rule::Rule;
 use crate::engine::knowledge_base::KnowledgeBase;
 use crate::engine::{EngineConfig, GruleExecutionResult, RustRuleEngine};
-use std::time::{Duration, Instant};
+use web_time::{Duration, Instant};
 
 /// Enhanced parallel rule engine with dependency analysis
 pub struct SafeParallelRuleEngine {

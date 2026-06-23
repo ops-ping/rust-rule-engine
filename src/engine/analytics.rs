@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 /// This module provides comprehensive metrics collection, analysis,
 /// and performance insights for rule execution.
 use std::collections::HashMap;
-use std::time::{Duration, SystemTime};
+use web_time::{Duration, SystemTime};
 
 /// Trend direction for performance metrics
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

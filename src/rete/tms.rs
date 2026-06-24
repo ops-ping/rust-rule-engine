@@ -25,7 +25,7 @@ use std::collections::{HashMap, HashSet};
 use web_time::Instant;
 
 /// Type of justification for a fact
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum JustificationType {
     /// Fact was explicitly asserted by user
     Explicit,
@@ -37,7 +37,7 @@ pub enum JustificationType {
 ///
 /// A fact can have multiple justifications (multiple rules can derive the same fact).
 /// The fact is only retracted when ALL justifications are removed.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Justification {
     /// The fact being justified
     pub fact_handle: FactHandle,
@@ -53,6 +53,7 @@ pub struct Justification {
     pub premise_facts: Vec<FactHandle>,
 
     /// When this justification was created
+    #[serde(skip)]
     pub created_at: Instant,
 
     /// Unique ID for this justification
@@ -314,7 +315,7 @@ impl Default for TruthMaintenanceSystem {
 }
 
 /// TMS statistics
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct TmsStats {
     pub total_justifications: usize,
     pub logical_facts: usize,

@@ -50,7 +50,7 @@ pub enum ConflictResolutionStrategy {
 }
 
 /// Activation represents a rule that is ready to fire
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Activation {
     /// Rule name
     pub rule_name: String,
@@ -69,6 +69,7 @@ pub struct Activation {
     /// Auto-focus flag
     pub auto_focus: bool,
     /// Creation timestamp (for conflict resolution)
+    #[serde(skip)]
     pub created_at: web_time::Instant,
     /// Number of conditions in the rule (for complexity/simplicity strategies)
     pub condition_count: usize,
@@ -460,7 +461,7 @@ impl Default for AdvancedAgenda {
 }
 
 /// Agenda statistics
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct AgendaStats {
     pub total_activations: usize,
     pub groups: usize,

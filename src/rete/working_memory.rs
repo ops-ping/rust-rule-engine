@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Unique handle for a fact in working memory (similar to Drools FactHandle)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct FactHandle(u64);
 
 impl FactHandle {
@@ -312,7 +312,7 @@ impl Default for WorkingMemory {
 }
 
 /// Working memory statistics
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct WorkingMemoryStats {
     pub total_facts: usize,
     pub active_facts: usize,

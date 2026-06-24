@@ -856,7 +856,7 @@ impl Default for IncrementalEngine {
 }
 
 /// Engine statistics
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize)]
 pub struct IncrementalEngineStats {
     pub rules: usize,
     pub working_memory: super::working_memory::WorkingMemoryStats,

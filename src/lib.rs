@@ -169,6 +169,7 @@ pub use engine::rule::{Condition, ConditionGroup, Rule};
 
 // Re-export parsers
 pub use parser::grl::GRLParser;
+pub use parser::grl_no_regex::GRLParserNoRegex;
 
 /// Builder pattern for creating a RustRuleEngine with various configurations.
 ///

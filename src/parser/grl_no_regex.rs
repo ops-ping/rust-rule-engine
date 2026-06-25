@@ -1071,7 +1071,7 @@ fn find_operator(text: &str, op: &str) -> Option<usize> {
     let bytes = text.as_bytes();
     let op_bytes = op.as_bytes();
     let mut in_string = false;
-    let mut bracket_depth = 0;
+    let mut bracket_depth: usize = 0;
     let mut i = 0;
 
     while i + op_bytes.len() <= bytes.len() {

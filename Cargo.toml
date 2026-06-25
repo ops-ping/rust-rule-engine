@@ -32,6 +32,8 @@ web-time = { version = "1.1", features = ["serde"] }
 tokio = { version = "1.52.3", features = ["full"], optional = true }
 nom = "8.0"
 redis = { version = "1.2", features = ["tokio-comp", "connection-manager"], optional = true }
+memchr = "2.7"
+aho-corasick = "1.1"
 
 [features]
 default = []

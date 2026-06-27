@@ -386,8 +386,11 @@ impl IncrementalEngine {
                 single_fact_data.set_fact_handle(fact_type.to_string(), fact.handle);
 
                 // Evaluate rule condition with this single fact
-                let matches =
-                    super::network::evaluate_rete_ul_node_typed(&rule.node, &single_fact_data, &self.custom_functions);
+                let matches = super::network::evaluate_rete_ul_node_typed(
+                    &rule.node,
+                    &single_fact_data,
+                    &self.custom_functions,
+                );
 
                 if matches {
                     // Create activation for this specific fact match
@@ -430,8 +433,11 @@ impl IncrementalEngine {
                         single_fact_data.set(format!("{}.{}", fact_type, key), value.clone());
                     }
 
-                    let matches =
-                        super::network::evaluate_rete_ul_node_typed(&rule.node, &single_fact_data, &self.custom_functions);
+                    let matches = super::network::evaluate_rete_ul_node_typed(
+                        &rule.node,
+                        &single_fact_data,
+                        &self.custom_functions,
+                    );
 
                     if matches {
                         let activation = Activation::new(rule.name.clone(), rule.priority)
@@ -702,6 +708,21 @@ impl IncrementalEngine {
     /// Clear fired flags and reset agenda
     pub fn reset(&mut self) {
         self.agenda.reset_fired_flags();
+    }
+
+    /// Reset the engine to its post-[`add_rule`](Self::add_rule) state for reuse:
+    /// clears all working-memory facts, the agenda, per-rule match tracking, and
+    /// the truth-maintenance system, while **keeping** the compiled rules,
+    /// dependency graph, registered functions, templates, globals, and deffacts.
+    ///
+    /// This lets a single engine be reused across many evaluations without
+    /// rebuilding the RETE network or recompiling rules — the next evaluation
+    /// starts from a clean fact base, exactly as a freshly built engine would.
+    pub fn clear_facts(&mut self) {
+        self.working_memory = WorkingMemory::new();
+        self.agenda = AdvancedAgenda::new();
+        self.rule_matched_facts = HashMap::new();
+        self.tms = TruthMaintenanceSystem::new();
     }
 
     /// Get template registry

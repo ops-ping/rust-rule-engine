@@ -60,8 +60,35 @@ impl GrlReteLoader {
         Ok(loaded_count)
     }
 
-    /// Convert GRL Rule to TypedReteUlRule
-    fn convert_rule_to_rete(rule: Rule) -> Result<TypedReteUlRule> {
+    /// Load already-parsed GRL rules into the RETE engine, reusing the same
+    /// converter (and thus the same real action closures) as `load_from_string`.
+    /// Lets callers parse with the no-regex parser — the authoritative, thread-safe
+    /// path — and still get full-fidelity actions.
+    pub fn load_rules(rules: Vec<Rule>, engine: &mut IncrementalEngine) -> Result<usize> {
+        let mut loaded_count = 0;
+        for rule in rules {
+            let rete_rule = Self::convert_rule_to_rete(rule)?;
+            let dependencies = Self::extract_dependencies(&rete_rule);
+            engine.add_rule(rete_rule, dependencies);
+            loaded_count += 1;
+        }
+        Ok(loaded_count)
+    }
+
+    /// Load GRL text via the **no-regex** parser (the authoritative, thread-safe
+    /// parser) into the RETE engine, with the engine's real action closures.
+    pub fn load_from_string_no_regex(
+        grl_text: &str,
+        engine: &mut IncrementalEngine,
+    ) -> Result<usize> {
+        let rules = crate::GRLParserNoRegex::parse_rules(grl_text)?;
+        Self::load_rules(rules, engine)
+    }
+
+    /// Convert a parsed GRL [`Rule`] to a [`TypedReteUlRule`] with its real action
+    /// closure. Public so callers can build RETE rules from rules parsed by either
+    /// GRL parser and feed them to [`IncrementalEngine::add_rule`].
+    pub fn convert_rule_to_rete(rule: Rule) -> Result<TypedReteUlRule> {
         // Convert ConditionGroup to ReteUlNode
         let node = Self::convert_condition_group(&rule.conditions)?;
 

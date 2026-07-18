@@ -15,11 +15,11 @@ use nom::{
 use std::time::Duration;
 
 // Re-export WindowType from streaming module when available
-#[cfg(feature = "streaming")]
+#[cfg(feature = "streaming-core")]
 pub use crate::streaming::window::WindowType;
 
 // Fallback WindowType for when streaming feature is not enabled
-#[cfg(not(feature = "streaming"))]
+#[cfg(not(feature = "streaming-core"))]
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub enum WindowType {
     Sliding,

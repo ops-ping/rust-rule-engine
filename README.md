@@ -1,17 +1,39 @@
-# Rust Rule Engine v1.20.3 🦀⚡🚀
+# Rust Rule Engine
 
 [![Crates.io](https://img.shields.io/crates/v/rust-rule-engine.svg)](https://crates.io/crates/rust-rule-engine)
 [![Documentation](https://docs.rs/rust-rule-engine/badge.svg)](https://docs.rs/rust-rule-engine)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Build Status](https://github.com/KSD-CO/rust-rule-engine/actions/workflows/rust.yml/badge.svg)](https://github.com/KSD-CO/rust-rule-engine/actions)
+[![Build Status](https://github.com/ops-ping/rust-rule-engine/actions/workflows/rust.yml/badge.svg)](https://github.com/ops-ping/rust-rule-engine/actions)
 
-A blazing-fast production-ready rule engine for Rust supporting **both Forward and Backward Chaining**. Features RETE-UL algorithm with **Alpha Memory Indexing** and **Beta Memory Indexing**, parallel execution, goal-driven reasoning, and GRL (Grule Rule Language) syntax.
+A compatibility-focused Rust rules engine for deterministic business rules,
+inference, and event processing. It supports GRL, forward and backward chaining,
+RETE-UL, custom functions and actions, synchronous streaming, WebAssembly, and
+optional Redis-backed state.
 
-**🆕 v1.20.3**: Custom function calls in RETE `when` conditions — register any function via `register_function()` and call it directly in GRL rules. Enables regex matching, external lookups, and complex predicates without hardcoding patterns. Zero breaking changes.
+## At a glance
 
-**v1.20.0**: Performance optimization — 2-683x speedup via zero-copy string ops and optimized rule iteration.
+| Capability | API |
+|---|---|
+| Rule authoring | GRL through the canonical thread-safe `GRLParser` |
+| Forward chaining | `RustRuleEngine` with salience, agenda, no-loop, functions, and actions |
+| Goal-driven inference | Optional `BackwardEngine` |
+| Optimized matching | RETE-UL, indexed alpha/beta memories, and parallel execution APIs |
+| Event processing | Runtime-neutral `StreamProcessor` with one-event/one-result semantics |
+| Event-time state | Sliding, tumbling, and session windows; watermarks; late-data policies |
+| Persistence | Memory and file state, plus optional synchronous Redis state |
+| Portability | Native Rust and WebAssembly-compatible core paths |
 
-🔗 **[GitHub](https://github.com/KSD-CO/rust-rule-engine)** | **[Documentation](https://docs.rs/rust-rule-engine)** | **[Crates.io](https://crates.io/crates/rust-rule-engine)**
+This fork keeps public types, GRL syntax, evaluator behavior, and feature
+boundaries consistent with the originating project wherever possible. Changes
+focus on generally useful parser correctness, error propagation,
+runtime-neutral streaming, numeric consistency, and WebAssembly portability.
+Product-specific behavior belongs in downstream function and action extensions,
+not in fork-only rule syntax.
+
+**Links:** [Fork repository](https://github.com/ops-ping/rust-rule-engine) ·
+[Originating project](https://github.com/KSD-CO/rust-rule-engine) ·
+[API documentation](https://docs.rs/rust-rule-engine) ·
+[Published crate](https://crates.io/crates/rust-rule-engine)
 
 ---
 
@@ -124,14 +146,15 @@ This release makes the parser **production-ready** for handling untrusted or mal
 
 **Use Cases:** Expert systems, diagnostics, planning, decision support, AI reasoning
 
-### 🌊 Stream Processing (Event-Driven) 🆕
+### 🌊 Stream Processing
 **"Process real-time event streams with time-based windows"**
 
-- **GRL Stream Syntax** - Declarative stream pattern definitions
-- **StreamAlphaNode** - RETE-integrated event filtering & windowing
-- **Time Windows** - Sliding (continuous), tumbling (non-overlapping), and **session (gap-based)** 🆕
-- **Multi-Stream Correlation** - Join events from different streams
-- **WorkingMemory Integration** - Stream events become facts for rule evaluation
+- **Synchronous Core** - `StreamProcessor::process_event` returns one result for one event
+- **GRL Stream Syntax** - Exact source/type filtering and event alias binding
+- **Time Windows** - Sliding, aligned tumbling, and inactivity-gap sessions
+- **Event-Time Handling** - Watermarks and explicit late-data policies
+- **State** - Bounded operational state with memory, file, or optional Redis backends
+- **Optional Tokio Driver** - Channel transport delegating to the same processor
 
 **Use Cases:** Real-time fraud detection, IoT monitoring, financial analytics, security alerts, CEP
 
@@ -139,12 +162,9 @@ This release makes the parser **production-ready** for handling untrusted or mal
 ```grl
 rule "Fraud Alert" {
     when
-        login: LoginEvent from stream("logins") over window(10 min, sliding) &&
-        purchase: PurchaseEvent from stream("purchases") over window(10 min, sliding) &&
-        login.user_id == purchase.user_id &&
-        login.ip_address != purchase.ip_address
+        login: LoginEvent from stream("logins")
     then
-        Alert.trigger("IP mismatch detected");
+        login.audited = true;
 }
 ```
 
@@ -154,26 +174,38 @@ rule "Fraud Alert" {
 
 ### Forward Chaining Example
 ```rust
-use rust_rule_engine::{RuleEngine, Facts, Value};
+use rust_rule_engine::{
+    Facts, GRLParser, KnowledgeBase, RustRuleEngine, Value,
+};
+use std::collections::HashMap;
 
-let mut engine = RuleEngine::new();
-
-// Define rule in GRL
-engine.add_rule_from_grl(r#"
+let knowledge_base = KnowledgeBase::new("discounts");
+for rule in GRLParser::parse_rules(r#"
     rule "VIP Discount" {
         when
             Customer.TotalSpent > 10000
         then
             Customer.Discount = 0.15;
     }
-"#)?;
+"#)? {
+    knowledge_base.add_rule(rule)?;
+}
+let mut engine = RustRuleEngine::new(knowledge_base);
 
-// Add facts and execute
-let mut facts = Facts::new();
-facts.set("Customer.TotalSpent", Value::Number(15000.0));
-engine.execute(&mut facts)?;
+let facts = Facts::new();
+facts.add_value(
+    "Customer",
+    Value::Object(HashMap::from([
+        ("TotalSpent".to_string(), Value::Number(15_000.0)),
+    ])),
+)?;
+let result = engine.execute(&facts)?;
 
-// Result: Customer.Discount = 0.15 ✓
+assert_eq!(result.rules_fired, 1);
+assert_eq!(
+    facts.get_nested("Customer.Discount"),
+    Some(Value::Number(0.15))
+);
 ```
 
 ### Backward Chaining Example
@@ -194,38 +226,40 @@ if result.provable {
 }
 ```
 
-### Stream Processing Example 🆕
+### Stream Processing Example
 ```rust
-use rust_rule_engine::parser::grl::stream_syntax::parse_stream_pattern;
-use rust_rule_engine::rete::stream_alpha_node::{StreamAlphaNode, WindowSpec};
-use rust_rule_engine::rete::working_memory::WorkingMemory;
+use rust_rule_engine::streaming::{StreamEvent, StreamProcessor};
+use rust_rule_engine::Value;
+use std::collections::HashMap;
 
-// Parse GRL stream pattern
-let grl = r#"login: LoginEvent from stream("logins") over window(5 min, sliding)"#;
-let (_, pattern) = parse_stream_pattern(grl)?;
-
-// Create stream processor
-let mut node = StreamAlphaNode::new(
-    &pattern.source.stream_name,
-    pattern.event_type,
-    pattern.source.window.as_ref().map(|w| WindowSpec {
-        duration: w.duration,
-        window_type: w.window_type.clone(),
-    }),
-);
-
-// Process events in real-time
-let mut wm = WorkingMemory::new();
-for event in event_stream {
-    if node.process_event(&event) {
-        // Event passed filters and is in window
-        wm.insert_from_stream("logins".to_string(), event);
-        // Now available for rule evaluation!
+let mut processor = StreamProcessor::new();
+processor.add_rule(
+    r#"
+    rule "AuditLogin" no-loop {
+        when login: LoginEvent from stream("logins")
+        then login.audited = true;
     }
-}
+    "#,
+)?;
+let result = processor.process_event(StreamEvent::with_timestamp(
+    "LoginEvent",
+    HashMap::from([(
+        "user".to_string(),
+        Value::String("alice".to_string()),
+    )]),
+    "logins",
+    1_000,
+))?;
 
-// Run: cargo run --example streaming_fraud_detection --features streaming
+assert_eq!(result.fired_rules, vec!["AuditLogin"]);
+assert_eq!(
+    result.facts.get_nested("login.audited"),
+    Some(Value::Boolean(true))
+);
 ```
+
+Enable `streaming-core` for the synchronous API. The optional `streaming`
+feature adds the Tokio channel driver, and `streaming-redis` adds Redis state.
 
 ---
 
@@ -555,8 +589,9 @@ chrono, log, nom, rexile, serde, serde_json, thiserror
 ```
 
 **Optional dependencies** (by feature):
-- `tokio` - Async runtime for streaming
-- `redis` - State backend for streaming-redis
+- `streaming-core` - Synchronous `StreamProcessor`, events, windows, watermarks, joins, operators, and state
+- `streaming` - `streaming-core` plus the Tokio `StreamRuleEngine` channel driver
+- `streaming-redis` - `streaming-core` plus the synchronous Redis state backend, without Tokio
 
 **Code changes:**
 - Thread detection: `num_cpus::get()` → `std::thread::available_parallelism()`
@@ -739,7 +774,7 @@ Comprehensive documentation organized by topic:
 - **[Streaming Architecture](docs/advanced-features/STREAMING_ARCHITECTURE.md)** - Deep dive into streaming
 - **[Plugins](docs/advanced-features/PLUGINS.md)** - Custom plugins and extensions
 - **[Performance](docs/advanced-features/PERFORMANCE.md)** - Optimization techniques
-- **[Redis State](docs/advanced-features/REDIS_STATE_BACKEND.md)** - Distributed state management
+- **[Redis State](docs/advanced-features/REDIS_STATE_BACKEND.md)** - Optional synchronous Redis-backed state
 
 ### 📖 [API Reference](docs/api-reference/)
 - **[API Reference](docs/api-reference/API_REFERENCE.md)** - Complete public API

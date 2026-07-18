@@ -42,7 +42,7 @@ impl TimeWindow {
         start_time: u64,
         max_events: usize,
     ) -> Self {
-        let end_time = start_time + duration.as_millis() as u64;
+        let end_time = start_time.saturating_add(duration.as_millis() as u64);
 
         Self {
             window_type,
@@ -57,13 +57,7 @@ impl TimeWindow {
     /// Add event to window if it fits
     pub fn add_event(&mut self, event: StreamEvent) -> bool {
         if self.contains_timestamp(event.metadata.timestamp) {
-            self.events.push_back(event);
-
-            // Keep window size under limit
-            while self.events.len() > self.max_events {
-                self.events.pop_front();
-            }
-
+            self.insert_event(event);
             true
         } else {
             false
@@ -72,7 +66,12 @@ impl TimeWindow {
 
     /// Check if timestamp falls within this window
     pub fn contains_timestamp(&self, timestamp: u64) -> bool {
-        timestamp >= self.start_time && timestamp < self.end_time
+        match self.window_type {
+            WindowType::Sliding | WindowType::Session { .. } => {
+                timestamp >= self.start_time && timestamp <= self.end_time
+            }
+            WindowType::Tumbling => timestamp >= self.start_time && timestamp < self.end_time,
+        }
     }
 
     /// Get all events in window
@@ -87,7 +86,10 @@ impl TimeWindow {
 
     /// Check if window is expired
     pub fn is_expired(&self, current_time: u64) -> bool {
-        current_time >= self.end_time
+        match self.window_type {
+            WindowType::Tumbling => current_time >= self.end_time,
+            WindowType::Sliding | WindowType::Session { .. } => current_time > self.end_time,
+        }
     }
 
     /// Get window duration in milliseconds
@@ -165,6 +167,29 @@ impl TimeWindow {
             .filter(|e| e.metadata.timestamp >= start && e.metadata.timestamp < end)
             .collect()
     }
+
+    fn insert_event(&mut self, event: StreamEvent) {
+        let index = self
+            .events
+            .iter()
+            .position(|existing| existing.metadata.timestamp > event.metadata.timestamp)
+            .unwrap_or(self.events.len());
+        self.events.insert(index, event);
+        while self.events.len() > self.max_events {
+            self.events.pop_front();
+        }
+    }
+
+    fn update_session_bounds(&mut self, timeout: Duration) {
+        if let (Some(first), Some(last)) = (self.events.front(), self.events.back()) {
+            self.start_time = first.metadata.timestamp;
+            self.end_time = last
+                .metadata
+                .timestamp
+                .saturating_add(timeout.as_millis() as u64);
+            self.duration = Duration::from_millis(self.end_time.saturating_sub(self.start_time));
+        }
+    }
 }
 
 /// Manages multiple time windows for stream processing
@@ -180,6 +205,8 @@ pub struct WindowManager {
     max_events_per_window: usize,
     /// Maximum number of windows to keep
     max_windows: usize,
+    /// Greatest event timestamp observed by a moving window.
+    greatest_event_time: Option<u64>,
 }
 
 impl WindowManager {
@@ -196,64 +223,116 @@ impl WindowManager {
             duration,
             max_events_per_window,
             max_windows,
+            greatest_event_time: None,
         }
     }
 
     /// Process a new event through the window system
     pub fn process_event(&mut self, event: StreamEvent) {
-        let event_time = event.metadata.timestamp;
-
-        // Find or create appropriate window
-        let mut added = false;
-
-        for window in &mut self.windows {
-            if window.add_event(event.clone()) {
-                added = true;
-                break;
-            }
+        match self.window_type.clone() {
+            WindowType::Sliding => self.process_sliding_event(event),
+            WindowType::Tumbling => self.process_tumbling_event(event),
+            WindowType::Session { timeout } => self.process_session_event(event, timeout),
         }
+        self.enforce_window_limit();
+    }
 
-        if !added {
-            // Create new window for this event
-            let window_start = self.calculate_window_start(event_time);
-            let mut new_window = TimeWindow::new(
-                self.window_type.clone(),
+    fn process_sliding_event(&mut self, event: StreamEvent) {
+        let event_time = event.metadata.timestamp;
+        let greatest = self
+            .greatest_event_time
+            .map_or(event_time, |current| current.max(event_time));
+        self.greatest_event_time = Some(greatest);
+
+        let start = greatest.saturating_sub(self.duration.as_millis() as u64);
+        if self.windows.is_empty() {
+            self.windows.push(TimeWindow::new(
+                WindowType::Sliding,
                 self.duration,
-                window_start,
+                start,
+                self.max_events_per_window,
+            ));
+        }
+        self.windows.truncate(1);
+
+        let window = &mut self.windows[0];
+        window.start_time = start;
+        window.end_time = greatest;
+        window
+            .events
+            .retain(|existing| existing.metadata.timestamp >= start);
+        if event_time >= start {
+            window.insert_event(event);
+        }
+    }
+
+    fn process_tumbling_event(&mut self, event: StreamEvent) {
+        let window_ms = (self.duration.as_millis() as u64).max(1);
+        let start = (event.metadata.timestamp / window_ms) * window_ms;
+        if let Some(window) = self
+            .windows
+            .iter_mut()
+            .find(|window| window.start_time == start)
+        {
+            window.add_event(event);
+        } else {
+            let mut window = TimeWindow::new(
+                WindowType::Tumbling,
+                Duration::from_millis(window_ms),
+                start,
                 self.max_events_per_window,
             );
-
-            new_window.add_event(event);
-            self.windows.push(new_window);
+            window.add_event(event);
+            self.windows.push(window);
         }
+        self.windows.sort_by_key(|window| window.start_time);
+    }
 
-        // Clean up expired windows
-        self.cleanup_expired_windows(event_time);
+    fn process_session_event(&mut self, event: StreamEvent, timeout: Duration) {
+        let event_time = event.metadata.timestamp;
+        let timeout_ms = timeout.as_millis() as u64;
+        let matching: Vec<usize> = self
+            .windows
+            .iter()
+            .enumerate()
+            .filter_map(|(index, window)| {
+                let first = window.events.front()?.metadata.timestamp;
+                let last = window.events.back()?.metadata.timestamp;
+                (event_time <= last.saturating_add(timeout_ms)
+                    && event_time.saturating_add(timeout_ms) >= first)
+                    .then_some(index)
+            })
+            .collect();
 
-        // Limit total number of windows
+        let mut events = vec![event];
+        for index in matching.into_iter().rev() {
+            let window = self.windows.remove(index);
+            events.extend(window.events);
+        }
+        events.sort_by_key(|event| event.metadata.timestamp);
+
+        let start = events
+            .first()
+            .map(|event| event.metadata.timestamp)
+            .unwrap_or(event_time);
+        let mut session = TimeWindow::new(
+            WindowType::Session { timeout },
+            timeout,
+            start,
+            self.max_events_per_window,
+        );
+        for event in events {
+            session.insert_event(event);
+        }
+        session.update_session_bounds(timeout);
+        self.windows.push(session);
+        self.windows.sort_by_key(|window| window.start_time);
+    }
+
+    fn enforce_window_limit(&mut self) {
         while self.windows.len() > self.max_windows {
             self.windows.remove(0);
         }
-
-        // Sort windows by start time
-        self.windows.sort_by_key(|w| w.start_time);
-    }
-
-    /// Calculate window start time based on window type
-    fn calculate_window_start(&self, event_time: u64) -> u64 {
-        match self.window_type {
-            WindowType::Tumbling => {
-                let window_ms = self.duration.as_millis() as u64;
-                (event_time / window_ms) * window_ms
-            }
-            WindowType::Sliding | WindowType::Session { .. } => event_time,
-        }
-    }
-
-    /// Remove expired windows
-    fn cleanup_expired_windows(&mut self, current_time: u64) {
-        self.windows
-            .retain(|window| !window.is_expired(current_time));
     }
 
     /// Get all active windows
@@ -324,6 +403,15 @@ mod tests {
     use crate::types::Value;
     use std::collections::HashMap;
 
+    fn event(timestamp: u64, value: f64) -> StreamEvent {
+        StreamEvent::with_timestamp(
+            "TestEvent",
+            HashMap::from([("value".to_string(), Value::Number(value))]),
+            "test",
+            timestamp,
+        )
+    }
+
     #[test]
     fn test_time_window_creation() {
         let window = TimeWindow::new(WindowType::Sliding, Duration::from_secs(60), 1000, 100);
@@ -377,5 +465,94 @@ mod tests {
 
         assert_eq!(manager.active_windows().len(), 1);
         assert_eq!(manager.total_event_count(), 1);
+    }
+
+    #[test]
+    fn test_sliding_window_moves_with_greatest_event_time() {
+        let mut manager =
+            WindowManager::new(WindowType::Sliding, Duration::from_millis(10), 100, 10);
+
+        manager.process_event(event(100, 1.0));
+        manager.process_event(event(105, 2.0));
+        manager.process_event(event(111, 3.0));
+
+        let window = manager.latest_window().unwrap();
+        assert_eq!(window.start_time, 101);
+        assert_eq!(window.end_time, 111);
+        assert_eq!(
+            window
+                .events()
+                .iter()
+                .map(|event| event.metadata.timestamp)
+                .collect::<Vec<_>>(),
+            vec![105, 111]
+        );
+
+        manager.process_event(event(103, 4.0));
+        assert_eq!(
+            manager
+                .latest_window()
+                .unwrap()
+                .events()
+                .iter()
+                .map(|event| event.metadata.timestamp)
+                .collect::<Vec<_>>(),
+            vec![103, 105, 111]
+        );
+
+        manager.process_event(event(99, 5.0));
+        assert_eq!(manager.total_event_count(), 3);
+    }
+
+    #[test]
+    fn test_tumbling_windows_use_aligned_buckets() {
+        let mut manager =
+            WindowManager::new(WindowType::Tumbling, Duration::from_millis(10), 100, 10);
+
+        manager.process_event(event(1, 1.0));
+        manager.process_event(event(9, 2.0));
+        manager.process_event(event(10, 3.0));
+
+        assert_eq!(manager.active_windows().len(), 2);
+        assert_eq!(manager.active_windows()[0].start_time, 0);
+        assert_eq!(manager.active_windows()[0].end_time, 10);
+        assert_eq!(manager.active_windows()[0].count(), 2);
+        assert_eq!(manager.active_windows()[1].start_time, 10);
+        assert_eq!(manager.active_windows()[1].end_time, 20);
+        assert_eq!(manager.active_windows()[1].count(), 1);
+    }
+
+    #[test]
+    fn test_session_windows_extend_until_inactivity_gap() {
+        let timeout = Duration::from_millis(10);
+        let mut manager = WindowManager::new(WindowType::Session { timeout }, timeout, 100, 10);
+
+        manager.process_event(event(100, 1.0));
+        manager.process_event(event(110, 2.0));
+        manager.process_event(event(121, 3.0));
+
+        assert_eq!(manager.active_windows().len(), 2);
+        assert_eq!(manager.active_windows()[0].start_time, 100);
+        assert_eq!(manager.active_windows()[0].end_time, 120);
+        assert_eq!(manager.active_windows()[0].count(), 2);
+        assert_eq!(manager.active_windows()[1].start_time, 121);
+        assert_eq!(manager.active_windows()[1].end_time, 131);
+    }
+
+    #[test]
+    fn test_session_windows_preserve_event_and_window_limits() {
+        let timeout = Duration::from_millis(5);
+        let mut manager = WindowManager::new(WindowType::Session { timeout }, timeout, 2, 2);
+
+        manager.process_event(event(100, 1.0));
+        manager.process_event(event(101, 2.0));
+        manager.process_event(event(102, 3.0));
+        assert_eq!(manager.latest_window().unwrap().count(), 2);
+
+        manager.process_event(event(110, 4.0));
+        manager.process_event(event(120, 5.0));
+        assert_eq!(manager.active_windows().len(), 2);
+        assert_eq!(manager.active_windows()[0].start_time, 110);
+        assert_eq!(manager.active_windows()[1].start_time, 120);
     }
 }

@@ -17,7 +17,7 @@ use log::info;
 use std::fs;
 use std::path::Path;
 
-#[cfg(feature = "streaming")]
+#[cfg(feature = "streaming-core")]
 use crate::rete::network::{StreamWindowSpec, StreamWindowTypeRete};
 
 /// GRL to RETE Loader
@@ -156,7 +156,7 @@ impl GrlReteLoader {
                 function: function.clone(),
                 function_arg: function_arg.clone(),
             }),
-            #[cfg(feature = "streaming")]
+            #[cfg(feature = "streaming-core")]
             ConditionGroup::StreamPattern {
                 var_name,
                 event_type,
@@ -523,7 +523,7 @@ impl GrlReteLoader {
                 // Add source pattern as a dependency
                 deps.push(source_pattern.clone());
             }
-            #[cfg(feature = "streaming")]
+            #[cfg(feature = "streaming-core")]
             ReteUlNode::UlStream { stream_name, .. } => {
                 // Add stream name as a dependency
                 deps.push(stream_name.clone());

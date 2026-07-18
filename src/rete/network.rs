@@ -368,7 +368,7 @@ pub fn evaluate_rete_ul_node(node: &ReteUlNode, facts: &HashMap<String, String>)
                 }
             }
         }
-        #[cfg(feature = "streaming")]
+        #[cfg(feature = "streaming-core")]
         ReteUlNode::UlStream { .. } => {
             // Stream nodes are handled by streaming engine
             // For HashMap evaluation context, return true
@@ -403,7 +403,7 @@ pub enum ReteUlNode {
         operator: Option<String>, // For operations like "count > 5"
         compare_value: Option<String>, // For operations like "count > 5"
     },
-    #[cfg(feature = "streaming")]
+    #[cfg(feature = "streaming-core")]
     UlStream {
         var_name: String,
         event_type: Option<String>,
@@ -421,14 +421,14 @@ pub enum ReteUlNode {
     UlTerminal(String), // Rule name
 }
 
-#[cfg(feature = "streaming")]
+#[cfg(feature = "streaming-core")]
 #[derive(Debug, Clone, PartialEq)]
 pub struct StreamWindowSpec {
     pub duration: std::time::Duration,
     pub window_type: StreamWindowTypeRete,
 }
 
-#[cfg(feature = "streaming")]
+#[cfg(feature = "streaming-core")]
 #[derive(Debug, Clone, PartialEq)]
 pub enum StreamWindowTypeRete {
     Sliding,
@@ -980,7 +980,7 @@ pub fn evaluate_rete_ul_node_typed(
 
             result.compare(operator, &expected)
         }
-        #[cfg(feature = "streaming")]
+        #[cfg(feature = "streaming-core")]
         ReteUlNode::UlStream { .. } => {
             // Stream nodes are handled by streaming engine
             // For TypedFacts evaluation context, return true

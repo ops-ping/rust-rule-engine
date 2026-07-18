@@ -3,13 +3,14 @@ name = "rust-rule-engine"
 version = "1.20.3"
 edition = "2021"
 authors = ["Ton That Vu <ttvuhm@gmail.com>"]
-description = "A blazing-fast Rust rule engine with RETE algorithm, backward chaining inference, and GRL (Grule Rule Language) syntax. Features: forward/backward chaining, pattern matching, unification, O(1) rule indexing, TMS, expression evaluation, method calls, streaming with Redis state backend, watermarking, and custom functions. Production-ready for business rules, expert systems, real-time stream processing, and decision automation."
+description = "Compatibility-focused Rust rule engine with GRL, forward and backward chaining, RETE-UL, synchronous streaming, WebAssembly, and optional Redis state."
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/KSD-CO/rust-rule-engine"
+repository = "https://github.com/ops-ping/rust-rule-engine"
+homepage = "https://github.com/ops-ping/rust-rule-engine"
 documentation = "https://docs.rs/rust-rule-engine"
-keywords = ["rules", "engine", "grl", "ai", "ml"]
-categories = ["algorithms", "data-structures", "science"]
+keywords = ["rule-engine", "grl", "rete", "inference", "streaming"]
+categories = ["algorithms", "data-structures", "development-tools", "wasm"]
 exclude = [
     "tests/*",
     ".github/*",
@@ -31,14 +32,15 @@ log = "0.4"
 web-time = { version = "1.1", features = ["serde"] }
 tokio = { version = "1.52.3", features = ["full"], optional = true }
 nom = "8.0"
-redis = { version = "1.2", features = ["tokio-comp", "connection-manager"], optional = true }
+redis = { version = "1.2", optional = true }
 memchr = "2.7"
 aho-corasick = "1.1"
 
 [features]
 default = []
-streaming = ["tokio"]
-streaming-redis = ["streaming", "redis"]
+streaming-core = []
+streaming = ["streaming-core", "dep:tokio"]
+streaming-redis = ["streaming-core", "dep:redis"]
 backward-chaining = []
 
 [dev-dependencies]

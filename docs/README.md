@@ -31,11 +31,11 @@ Advanced capabilities for production use.
 
 - **[RETE Optimization](advanced-features/RETE_OPTIMIZATION.md)** - 1,235x join speedup & memory optimizations
 - **[ProofGraph Caching](advanced-features/PROOF_GRAPH_CACHING.md)** 🆕 - 100-1000x speedup for backward chaining
-- **[Streaming & CEP](advanced-features/STREAMING.md)** - Complex Event Processing
+- **[Streaming & CEP](advanced-features/STREAMING.md)** - Synchronous stream processing with optional drivers
 - **[Modules & Imports](advanced-features/MODULES.md)** - Modular rule organization
 - **[Plugins & Extensions](advanced-features/PLUGINS.md)** - Custom plugins and functions
 - **[Performance Tuning](advanced-features/PERFORMANCE.md)** - Optimization techniques
-- **[Redis State Backend](advanced-features/REDIS_STATE_BACKEND.md)** - Distributed state management
+- **[Redis State Backend](advanced-features/REDIS_STATE_BACKEND.md)** - Optional synchronous Redis-backed state
 
 ### 📖 [API Reference](api-reference/)
 Complete API documentation.

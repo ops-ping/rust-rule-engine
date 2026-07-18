@@ -44,10 +44,10 @@ pub struct WorkingMemoryFact {
     /// Metadata
     pub metadata: FactMetadata,
     /// Stream source (if this fact came from a stream)
-    #[cfg(feature = "streaming")]
+    #[cfg(feature = "streaming-core")]
     pub stream_source: Option<String>,
     /// Stream event (if this fact came from a stream)
-    #[cfg(feature = "streaming")]
+    #[cfg(feature = "streaming-core")]
     pub stream_event: Option<crate::streaming::event::StreamEvent>,
 }
 
@@ -112,9 +112,9 @@ impl WorkingMemory {
             fact_type: fact_type.clone(),
             data,
             metadata: FactMetadata::default(),
-            #[cfg(feature = "streaming")]
+            #[cfg(feature = "streaming-core")]
             stream_source: None,
-            #[cfg(feature = "streaming")]
+            #[cfg(feature = "streaming-core")]
             stream_event: None,
         };
 
@@ -126,7 +126,7 @@ impl WorkingMemory {
     }
 
     /// Insert a fact from a stream event
-    #[cfg(feature = "streaming")]
+    #[cfg(feature = "streaming-core")]
     pub fn insert_from_stream(
         &mut self,
         stream_name: String,

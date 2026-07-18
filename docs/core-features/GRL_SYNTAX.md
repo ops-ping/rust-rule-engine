@@ -1,8 +1,16 @@
 # GRL Syntax Reference
 
-Complete reference for Grule Rule Language (GRL) syntax supported by rust-rule-engine v1.1.0.
+Complete reference for the Grule Rule Language (GRL) syntax supported by
+rust-rule-engine.
 
-**NEW in v1.1.0**: Module system for organizing rules into namespaces with controlled visibility and imports. See [Modules section](#modules-v110---new) for details.
+Parse authored GRL through the canonical thread-safe entry point:
+
+```rust
+use rust_rule_engine::GRLParser;
+```
+
+The legacy regex implementation remains available as
+`rust_rule_engine::RegexGRLParser` for explicit compatibility use.
 
 ---
 
@@ -11,8 +19,8 @@ Complete reference for Grule Rule Language (GRL) syntax supported by rust-rule-e
 2. [Rule Attributes](#rule-attributes)
 3. [Conditions](#conditions)
 4. [Actions](#actions)
-5. [Modules (v1.1.0)](#modules-v110---new) ⭐ NEW
-6. [Advanced Features (v0.17.x)](#advanced-features)
+5. [Modules](#modules)
+6. [Advanced Features](#advanced-features)
 7. [Built-in Functions](#built-in-functions)
 8. [Best Practices](#best-practices)
 9. [Common Patterns](#common-patterns)
@@ -61,7 +69,7 @@ rule "NormalPriority" salience 50 {
 
 **Default**: 0 (if not specified)
 
-### No-Loop (v1.1.0)
+### No-Loop
 Prevents infinite loops when rule modifies facts that triggered it.
 
 ```grl
@@ -134,7 +142,7 @@ rule "HolidaySale"
 
 ---
 
-## Modules (v1.1.0) - NEW ⭐
+## Modules
 
 Organize rules into modules for namespace isolation, controlled visibility, and layered system architecture.
 
@@ -485,7 +493,7 @@ rule "LogSystemStatus" salience 30 {
 ### Loading and Using Modules in Rust
 
 ```rust
-use rust_rule_engine::parser::grl::GRLParser;
+use rust_rule_engine::GRLParser;
 use std::fs;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -804,7 +812,7 @@ when
     (A && B) || (C && D)                // Grouped expressions
 ```
 
-### Arithmetic Expressions (v1.1.0) ⭐ NEW
+### Arithmetic Expressions
 Direct arithmetic in conditions without pre-calculation.
 
 ```grl
@@ -832,7 +840,7 @@ rule "ComplexMath" {
 
 **Supported Operators**: `+`, `-`, `*`, `/`, `%` (modulo)
 
-### Variable References (v1.1.0) ⭐ NEW
+### Variable References
 Compare fact values dynamically (variable-to-variable).
 
 ```grl
@@ -862,7 +870,7 @@ when
     code.matches("ABC*")     // Wildcard pattern (if supported by plugin)
 ```
 
-### Array/Multifield Operations (v0.17.0)
+### Array/Multifield Operations
 CLIPS-style collection pattern matching.
 
 ```grl
@@ -896,7 +904,7 @@ when
 
 ## Advanced Features
 
-### Test CE (Custom Expressions) (v1.1.0)
+### Test CE (Custom Expressions)
 Execute arbitrary boolean expressions for complex logic.
 
 ```grl
@@ -954,7 +962,7 @@ rule "AllItemsValidated" {
 }
 ```
 
-### Accumulate Functions (v0.17.0)
+### Accumulate Functions
 Aggregations and computations over collections.
 
 ```grl
@@ -1027,7 +1035,7 @@ then
     Log.message = "Order " + Order.id + " processed at " + Now();
 ```
 
-### Variable-to-Variable Assignment (v1.1.0)
+### Variable-to-Variable Assignment
 ```grl
 then
     order_qty = moq;              // Copy value
@@ -1325,7 +1333,7 @@ rule "RejectIfInvalid" salience 50 {
 }
 ```
 
-### Dynamic Threshold Comparison (v1.1.0)
+### Dynamic Threshold Comparison
 ```grl
 rule "CheckL1Level" salience 50 no-loop true {
     when
@@ -1461,46 +1469,16 @@ See [examples/](../examples/) directory for complete working examples:
 - `examples/expression_demo.rs` - Expression evaluation
 - `examples/custom_functions_demo.rs` - Custom function usage
 
-### Advanced Examples (v1.1.x)
-- `examples/assignment_test.rs` - Variable assignment (v1.1.0)
-- `examples/assignment_test_rete.rs` - RETE variable assignment (v1.1.0)
-- `examples/test_modulo_execution.rs` - Arithmetic expressions (v1.1.0)
-- `examples/famicanxi_rete_test.rs` - Dynamic thresholds (v1.1.0)
+### Advanced Examples
+- `examples/assignment_test.rs` - Variable assignment
+- `examples/assignment_test_rete.rs` - RETE variable assignment
+- `examples/test_modulo_execution.rs` - Arithmetic expressions
+- `examples/famicanxi_rete_test.rs` - Dynamic thresholds
 
 ### RETE Examples
 - `examples/famicanxi_rules.grl` - Production RETE rules with no-loop
 - `examples/rules/no_loop_test.grl` - No-loop directive testing
 - `examples/rules/fraud_detection.grl` - Fraud scoring system
-
----
-
-## Migration Guide
-
-### From v0.17.x to v1.1.x
-
-**New Features:**
-1. **Arithmetic in conditions**: `User.Age % 3 == 0`
-2. **Variable references**: `Facts.L1 > Facts.L1Min`
-3. **No-loop directive**: `no-loop true`
-4. **Improved RETE**: Infinite loop prevention
-
-**Breaking Changes:**
-- None (fully backward compatible)
-
-**Recommended Updates:**
-```grl
-// Old (still works)
-rule "OldStyle" {
-    when Counter.value < 100
-    then Counter.value = Counter.value + 1;
-}
-
-// New (recommended)
-rule "NewStyle" no-loop true {
-    when Counter.value < 100
-    then Counter.value = Counter.value + 1;
-}
-```
 
 ---
 
@@ -1576,7 +1554,6 @@ when Order.amount > 1000  // Integer comparison
 
 ---
 
-**Version**: 0.17.1  
-**Last Updated**: 2025-11-20  
-**Documentation**: [https://github.com/yourusername/rust-rule-engine](https://github.com/yourusername/rust-rule-engine)  
-**Issues**: [GitHub Issues](https://github.com/yourusername/rust-rule-engine/issues)
+**Documentation**: [rust-rule-engine](https://github.com/KSD-CO/rust-rule-engine)
+
+**Issues**: [GitHub Issues](https://github.com/KSD-CO/rust-rule-engine/issues)

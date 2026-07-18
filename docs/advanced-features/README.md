@@ -12,10 +12,10 @@ Advanced capabilities for production use.
 Introduction to stream processing and CEP.
 
 **Topics:**
-- Stream basics
-- Windowing
-- Watermarking
-- Event time vs processing time
+- Synchronous one-event/one-result processing
+- Stream-pattern binding
+- Windowing and watermarking
+- Optional Tokio transport
 
 #### [Streaming Architecture](STREAMING_ARCHITECTURE.md)
 Deep dive into streaming architecture and patterns.
@@ -23,8 +23,8 @@ Deep dive into streaming architecture and patterns.
 **Topics:**
 - Architecture overview
 - State management
-- Exactly-once semantics
-- Performance optimization
+- Sequential processing and feature boundaries
+- Host-owned delivery guarantees
 
 #### [Stream Operators](STREAM_OPERATORS.md)
 Complete reference for stream operators.
@@ -47,13 +47,13 @@ Build custom plugins and extend the engine.
 - Plugin best practices
 
 #### [Redis State Backend](REDIS_STATE_BACKEND.md)
-Distributed state management with Redis.
+Optional synchronous Redis-backed state.
 
 **Topics:**
 - Redis integration
-- State persistence
-- Distributed deployment
-- Performance tuning
+- Error propagation
+- Server-owned persistence
+- Deployment boundaries
 
 ### ⚡ Performance & Optimization
 

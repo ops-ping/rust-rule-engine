@@ -1,264 +1,198 @@
-# 🌊 Streaming Rule Engine
+# Streaming
 
-Real-time event processing with sophisticated rule evaluation capabilities.
+rust-rule-engine provides a synchronous, runtime-neutral stream processor and
+optional transport and state integrations. The core contract is one
+`StreamEvent` input and one `StreamProcessingResult` output.
 
 ## Features
 
-- **🔄 Continuous Processing**: Non-stop rule evaluation on streaming data
-- **⏰ Time Windows**: Sliding and tumbling window aggregations  
-- **📊 Stream Analytics**: Count, sum, average, min/max over time windows
-- **🎯 Event Filtering**: Pattern matching and event correlation
-- **⚡ High Throughput**: Async processing with backpressure handling
-- **🚨 Real-time Alerts**: Immediate action triggering based on conditions
-
-## Quick Start
-
-### Enable Streaming Feature
-
-Add to your `Cargo.toml`:
-
 ```toml
 [dependencies]
-rust-rule-engine = { version = "0.1.4", features = ["streaming"] }
+rust-rule-engine = { version = "1.20.3", features = ["streaming-core"] }
 ```
 
-### Basic Usage
+| Feature | Capability |
+|---|---|
+| `streaming-core` | Synchronous `StreamProcessor`, events, windows, watermarks, joins, operators, and state |
+| `streaming` | `streaming-core` plus the Tokio `StreamRuleEngine` channel driver |
+| `streaming-redis` | `streaming-core` plus the synchronous Redis `StateStore` backend |
+
+`streaming-redis` does not require Tokio. Enable `streaming` separately when an
+async channel adapter is needed.
+
+## Synchronous processing
 
 ```rust
-use rust_rule_engine::streaming::*;
-use std::time::Duration;
+use rust_rule_engine::streaming::{StreamEvent, StreamProcessor};
+use rust_rule_engine::Value;
+use std::collections::HashMap;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create streaming engine
-    let mut engine = StreamRuleEngine::new();
-    
-    // Add streaming rule
-    let rule = r#"
-    rule "HighVolumeAlert" salience 10 {
-        when
-            WindowEventCount > 100 && volumeSum > 1000000
-        then
-            AlertService.trigger("High volume detected");
-    }
-    "#;
-    
-    engine.add_rule(rule).await?;
-    
-    // Register action handler
-    engine.register_action_handler("AlertService", |action| {
-        println!("🚨 Alert: {:?}", action.parameters);
-    }).await;
-    
-    // Start processing
-    engine.start().await?;
-    
-    // Send events
-    let event = StreamEvent::new("TradeEvent", data, "exchange");
-    engine.send_event(event).await?;
-    
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut processor = StreamProcessor::new();
+    processor.add_rule(
+        r#"
+        rule "HighOrder" no-loop {
+            when Order.value > 100
+            then Order.flagged = true;
+        }
+        "#,
+    )?;
+
+    let event = StreamEvent::with_timestamp(
+        "Order",
+        HashMap::from([("value".to_string(), Value::Number(125.0))]),
+        "orders",
+        1_000,
+    );
+    let result = processor.process_event(event)?;
+
+    assert!(result.accepted);
+    assert_eq!(result.fired_rules, vec!["HighOrder"]);
+    assert_eq!(
+        result.facts.get_nested("Order.flagged"),
+        Some(Value::Boolean(true))
+    );
     Ok(())
 }
 ```
 
-## Advanced Configuration
+`StreamProcessor` owns the canonical `RustRuleEngine`. Custom functions and
+actions use the same registration APIs as ordinary forward evaluation:
 
 ```rust
-let config = StreamConfig {
-    buffer_size: 10000,                          // Event buffer size
-    window_duration: Duration::from_secs(60),    // 60-second windows
-    max_events_per_window: 1000,                 // Max events per window
-    max_windows: 100,                            // Keep 100 windows
-    window_type: WindowType::Sliding,            // Sliding windows
-    analytics_cache_ttl_ms: 30000,               // 30s cache TTL
-    processing_interval: Duration::from_millis(100), // Process every 100ms
+processor.register_function("is_large", |args, _facts| {
+    Ok(Value::Boolean(matches!(
+        args.first(),
+        Some(Value::Number(value)) if *value >= 50.0
+    )))
+});
+```
+
+Function and action errors propagate from `process_event`.
+
+## Stream patterns
+
+GRL stream patterns filter the current event and bind an alias:
+
+```grl
+rule "LoginAudit" no-loop {
+    when login: LoginEvent from stream("logins")
+    then login.audited = true;
+}
+```
+
+The mapping is exact and case-sensitive:
+
+- `stream("logins")` matches `StreamEvent.metadata.source == "logins"`.
+- `LoginEvent` matches `StreamEvent.event_type == "LoginEvent"`.
+- Omitting the event type accepts any event from the named source.
+- `login` is bound to an object containing the payload plus `id`,
+  `event_type`, `source`, `timestamp`, and `sequence`.
+- A stream pattern does not match during non-stream engine execution because no
+  current-event context exists.
+
+The internal current-event context is removed from returned facts.
+
+## Event facts and aggregates
+
+An accepted event is available under both its event type and source names.
+Numeric fields in the selected window also produce:
+
+- `WindowEventCount`
+- `WindowStartTime`
+- `WindowEndTime`
+- `WindowDurationMs`
+- `<field>Sum`
+- `<field>Average`
+- `<field>Min`
+- `<field>Max`
+
+The complete result contains event disposition, fired rule names, final facts,
+window counts, watermark, late-data statistics, analytics, canonical engine
+metrics, and processing duration.
+
+## Configuration
+
+```rust
+use rust_rule_engine::streaming::{
+    LateDataStrategy, StreamConfig, StreamProcessor, WatermarkStrategy,
+    WindowType,
 };
+use std::time::Duration;
 
-let engine = StreamRuleEngine::with_config(config);
+let processor = StreamProcessor::with_config(StreamConfig {
+    window_type: WindowType::Sliding,
+    window_duration: Duration::from_secs(60),
+    max_events_per_window: 1_000,
+    max_windows: 100,
+    max_state_sources: 100,
+    watermark_strategy: WatermarkStrategy::BoundedOutOfOrder {
+        max_delay: Duration::from_secs(5),
+    },
+    late_data_strategy: LateDataStrategy::Drop,
+    ..StreamConfig::default()
+});
 ```
 
-## Window Types
+### Window semantics
 
-### Sliding Windows
-```rust
-// Continuously moving windows
-WindowType::Sliding
-```
+- **Sliding** retains events in
+  `[greatest accepted event time - duration, greatest accepted event time]`.
+  In-range out-of-order events remain in the moving window.
+- **Tumbling** assigns events to fixed, aligned, non-overlapping buckets.
+- **Session** groups events while inactivity gaps are less than or equal to the
+  configured timeout. A larger gap starts another retained session.
 
-### Tumbling Windows  
-```rust
-// Non-overlapping fixed intervals
-WindowType::Tumbling
-```
+Per-window event limits and active-window limits bound retained data.
 
-### Session Windows
-```rust
-// Based on inactivity gaps
-WindowType::Session { 
-    timeout: Duration::from_secs(300) 
-}
-```
+### Watermarks and late data
 
-## Stream Aggregations
+Watermark strategies are periodic, bounded out-of-order, monotonic ascending,
+or custom. Late-data strategies can drop, accept within a lateness bound, route
+to side output, or accept through the `RecomputeWindows` path for normal window
+insertion. The result reports whether the input was accepted, dropped, or
+routed to side output.
 
-The engine automatically provides these aggregations in rule conditions:
+## State
 
-### Window Statistics
-- `WindowEventCount` - Number of events in window
-- `WindowStartTime` - Window start timestamp
-- `WindowEndTime` - Window end timestamp  
-- `WindowDurationMs` - Window duration in milliseconds
-
-### Field Aggregations
-For any numeric field `price`:
-- `priceSum` - Sum of all price values
-- `priceAverage` - Average price
-- `priceMin` - Minimum price
-- `priceMax` - Maximum price
-
-Example rule using aggregations:
-```rust
-rule "PriceVolatility" {
-    when
-        priceMax - priceMin > 10.0 && WindowEventCount > 20
-    then
-        AlertService.trigger("High price volatility");
-}
-```
-
-## Event Processing
-
-### Creating Events
-```rust
-use std::collections::HashMap;
-
-let mut data = HashMap::new();
-data.insert("symbol".to_string(), Value::String("AAPL".to_string()));
-data.insert("price".to_string(), Value::Number(150.50));
-data.insert("volume".to_string(), Value::Number(10000.0));
-
-let event = StreamEvent::new("TradeEvent", data, "nasdaq");
-```
-
-### Event Metadata
-```rust
-// Access event metadata
-println!("Event ID: {}", event.id);
-println!("Timestamp: {}", event.metadata.timestamp);
-println!("Source: {}", event.metadata.source);
-println!("Age: {}ms", event.age_ms());
-```
-
-### Event Pattern Matching
-```rust
-let pattern = EventPattern::new()
-    .with_event_type("TradeEvent")
-    .with_field("symbol", Value::String("AAPL".to_string()))
-    .with_source("nasdaq");
-
-if event.matches_pattern(&pattern) {
-    println!("Event matches trading pattern");
-}
-```
-
-## Action Handlers
-
-Register custom handlers for rule actions:
+Every accepted event writes bounded operational state through the configured
+`StateStore`: sequence, watermark, latest event by source, window counts, and
+analytics. Memory and file backends are part of `streaming-core`; Redis is
+available with `streaming-redis`.
 
 ```rust
-// Alert handler
-engine.register_action_handler("AlertService", |action| {
-    match action.parameters.get("level") {
-        Some(Value::String(level)) => {
-            println!("🚨 {} Alert: {}", level.to_uppercase(), action.rule_name);
-        }
-        _ => println!("🚨 Alert triggered: {}", action.rule_name),
-    }
-}).await;
-
-// Trading handler
-engine.register_action_handler("TradingService", |action| {
-    if let Some(Value::String(action_type)) = action.parameters.get("action") {
-        match action_type.as_str() {
-            "buy" => println!("📈 Executing BUY order"),
-            "sell" => println!("📉 Executing SELL order"), 
-            "halt" => println!("🛑 Halting trading"),
-            _ => println!("🔄 Unknown trading action"),
-        }
-    }
-}).await;
+processor.checkpoint("before-maintenance")?;
+processor.restore_state("checkpoint_id")?;
 ```
 
-## Real-world Example
+Backend errors propagate from `process_event`. See
+[Redis State Backend](REDIS_STATE_BACKEND.md) for Redis-specific behavior.
 
-See `examples/realtime_trading_stream.rs` for a complete trading system:
+## Optional Tokio driver
 
-```bash
-# Run with streaming feature
-cargo run --example realtime_trading_stream --features streaming
-```
-
-This example demonstrates:
-- High-frequency trading detection
-- Price volatility monitoring
-- Large trade alerts
-- Trend analysis
-- Circuit breaker triggers
-- Real-time metrics and monitoring
-
-## Performance Tips
-
-1. **Batch Processing**: Events are automatically batched for efficiency
-2. **Window Limits**: Set appropriate `max_events_per_window` to prevent memory issues
-3. **Cache TTL**: Use analytics cache for expensive calculations
-4. **Buffer Size**: Increase `buffer_size` for high-throughput scenarios
-5. **Processing Interval**: Balance latency vs. throughput with `processing_interval`
-
-## Monitoring
+`StreamRuleEngine` is a channel adapter around one `StreamProcessor`. It does
+not define another evaluator or streaming semantics.
 
 ```rust
-// Get execution metrics
-let result = engine.execute_rules().await?;
-println!("Rules fired: {}", result.rules_fired);
-println!("Events processed: {}", result.events_processed);
-println!("Processing time: {}ms", result.processing_time_ms);
+use rust_rule_engine::streaming::{StreamEvent, StreamRuleEngine};
 
-// Get window statistics
-let stats = engine.get_window_statistics().await;
-println!("Active windows: {}", stats.total_windows);
-println!("Total events: {}", stats.total_events);
-
-// Get field analytics
-let analytics = engine.get_field_analytics("price").await;
-if let Some(Value::Number(avg)) = analytics.get("overall_average") {
-    println!("Average price: ${:.2}", avg);
-}
+# async fn run(event: StreamEvent) -> rust_rule_engine::Result<()> {
+let mut driver = StreamRuleEngine::new();
+driver.add_rule(
+    r#"rule "Accept" { when Order.value > 0 then Order.accepted = true; }"#,
+).await?;
+driver.start().await?;
+let result = driver.process_event(event).await?;
+driver.stop().await;
+# Ok(())
+# }
 ```
 
-## Integration Examples
+The channel provides bounded submission and async response delivery. Delegated
+events still pass sequentially through the same synchronous processor.
 
-### Financial Trading
-- Real-time trade monitoring
-- Risk management alerts
-- Market volatility detection
-- Regulatory compliance
+## Related documentation
 
-### IoT Monitoring  
-- Sensor data analysis
-- Anomaly detection
-- Predictive maintenance
-- Resource optimization
-
-### Log Processing
-- Error rate monitoring
-- Performance tracking
-- Security event detection
-- System health checks
-
-### E-commerce
-- Fraud detection
-- Inventory alerts
-- Customer behavior analysis
-- Promotional triggers
-
-The streaming rule engine provides powerful real-time capabilities while maintaining the simplicity and performance of the core rule engine.
+- [Streaming Architecture](STREAMING_ARCHITECTURE.md)
+- [Stream Operators](STREAM_OPERATORS.md)
+- [Redis State Backend](REDIS_STATE_BACKEND.md)

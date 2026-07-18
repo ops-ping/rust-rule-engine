@@ -1,5 +1,14 @@
 # Parser Module System - Cheat Sheet
 
+## Parser entry points
+
+```rust
+use rust_rule_engine::{GRLParser, RegexGRLParser};
+```
+
+`GRLParser` is the canonical thread-safe parser. `RegexGRLParser` preserves the
+legacy regex implementation for explicit compatibility use.
+
 ## ONE-LINE ANSWER
 
 **Parser distinguishes modules using comment markers (`;; MODULE: NAME`) - it searches backward from each rule to find the nearest marker and assigns that rule to the module.**
@@ -165,7 +174,7 @@ rule "ControlRule2" { ... }
 ## How to Verify
 
 ```rust
-use rust_rule_engine::parser::grl::GRLParser;
+use rust_rule_engine::GRLParser;
 
 let grl = "your GRL content";
 let parsed = GRLParser::parse_with_modules(grl)?;
@@ -249,4 +258,3 @@ Context Marker:     ;; MODULE:
 - Examples: `MODULE_PARSING_EXAMPLES.md`
 - Syntax: `GRL_SYNTAX.md`
 - Feature status: `MODULE_SYSTEM_ANALYSIS.md`
-

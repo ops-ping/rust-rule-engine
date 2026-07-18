@@ -2423,17 +2423,17 @@ let query_result = bc_engine.query("User.IsVIP == true", &facts)?;
 #### With Streaming Engine
 
 ```rust
-// Parallel batch processing + streaming real-time
+// Parallel batch processing + synchronous event processing
 let mut parallel_engine = ParallelRuleEngine::new(config)?;
-let mut streaming_engine = StreamRuleEngine::new()?;
+let mut stream_processor = StreamProcessor::new();
 
 // Load same rules into both
 parallel_engine.add_rules_from_grl(&rules)?;
-streaming_engine.add_rules(&rules).await?;
+stream_processor.add_rule(&rules)?;
 
-// Use parallel for batch, streaming for real-time
+// Use parallel for batch and StreamProcessor for one-event/one-result work
 let batch_result = parallel_engine.execute_parallel().await?;
-let stream_result = streaming_engine.execute_rules().await?;
+let stream_result = stream_processor.process_event(event)?;
 ```
 
 The Parallel Rule Execution engine provides significant performance improvements for rule-heavy applications while maintaining the correctness and safety guarantees of the single-threaded engine.
@@ -2863,29 +2863,23 @@ let goal_result = bc_engine.query_with_facts(
 #### With Streaming Engine
 
 ```rust
-// Real-time queries on streaming data
-let mut streaming_engine = StreamRuleEngine::new()?;
+// Query the final facts returned for one event
+let mut stream_processor = StreamProcessor::new();
 let query_executor = GRLQueryExecutor::new();
 
 // Set up streaming rules
-streaming_engine.add_rules(&streaming_rules).await?;
+stream_processor.add_rule(&streaming_rules)?;
+let stream_result = stream_processor.process_event(event)?;
 
-// Add query handler for real-time analysis
-streaming_engine.register_query_handler("analyze_high_value", |facts| {
-    let query = r#"
-    query HighValueTransactions {
-        find Transaction {
-            Amount > 10000
-            Timestamp > $?timeWindow
-        }
+let query = r#"
+query HighValueTransactions {
+    find Transaction {
+        Amount > 10000
+        Timestamp > $?timeWindow
     }
-    "#;
-    
-    query_executor.execute_query(query, facts)
-})?;
-
-// Start streaming and query processing
-streaming_engine.start().await?;
+}
+"#;
+let matches = query_executor.execute_query(query, &stream_result.facts)?;
 ```
 
 ### Advanced Features

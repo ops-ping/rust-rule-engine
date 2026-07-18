@@ -33,7 +33,7 @@
 //! // naive_date.and_hms_opt(0, 0, 0).unwrap()
 //!
 //! // v1.19.3 - Returns Result with helpful error message
-//! use rust_rule_engine::parser::grl::GRLParser;
+//! use rust_rule_engine::GRLParser;
 //!
 //! let result = GRLParser::parse_rules("malformed GRL...");
 //! match result {
@@ -151,7 +151,7 @@ pub mod plugins;
 #[allow(missing_docs)]
 pub mod rete;
 /// Streaming rule engine for real-time event processing
-#[cfg(feature = "streaming")]
+#[cfg(feature = "streaming-core")]
 #[allow(missing_docs)]
 pub mod streaming;
 /// Core type definitions for values, operators, and actions
@@ -167,9 +167,8 @@ pub use engine::facts::{FactHelper, Facts};
 pub use engine::knowledge_base::KnowledgeBase;
 pub use engine::rule::{Condition, ConditionGroup, Rule};
 
-// Re-export parsers
-pub use parser::grl::GRLParser;
-pub use parser::grl_no_regex::GRLParserNoRegex;
+// Re-export the thread-safe parser under the established public name.
+pub use parser::{GRLParser, GRLParserNoRegex};
 
 /// Builder pattern for creating a RustRuleEngine with various configurations.
 ///

@@ -473,7 +473,7 @@ rule "RandomRule" { ... }        ;; → MAIN (no comment, not in any module sect
 ## Debugging - How to Verify
 
 ```rust
-use rust_rule_engine::parser::grl::GRLParser;
+use rust_rule_engine::GRLParser;
 use std::fs;
 
 let grl = fs::read_to_string("smart_home.grl")?;
@@ -561,4 +561,3 @@ rule "Rule3" { ... }  ← Gets CONTROL
 
 **Key Takeaway**: 
 The parser uses **comment markers** (`; MODULE: NAME`) to determine which rules belong to which modules. The `;; MODULE: XXX` comment is a **context marker** that tells the parser "all rules after this belong to the XXX module until the next module marker."
-

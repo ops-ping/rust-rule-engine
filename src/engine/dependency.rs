@@ -129,7 +129,7 @@ impl DependencyAnalyzer {
                 reads.push(format!("{}.{}", source_pattern, extract_field));
             }
 
-            #[cfg(feature = "streaming")]
+            #[cfg(feature = "streaming-core")]
             crate::engine::rule::ConditionGroup::StreamPattern {
                 stream_name,
                 event_type,

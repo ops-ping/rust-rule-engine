@@ -4,6 +4,9 @@
 //! stream processing with out-of-order events.
 
 use super::event::StreamEvent;
+
+use crate::Result;
+
 use std::collections::VecDeque;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -310,6 +313,17 @@ pub struct LateDataStats {
     pub side_output: usize,
 }
 
+/// Result of submitting an event to a watermarked stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WatermarkedEventStatus {
+    /// The event is available for downstream processing.
+    Accepted,
+    /// The configured late-data policy dropped the event.
+    Dropped,
+    /// The event was routed to the late-data side output.
+    SideOutput,
+}
+
 /// Watermark-aware stream that tracks event-time progress
 pub struct WatermarkedStream {
     /// Events in the stream
@@ -337,7 +351,7 @@ impl WatermarkedStream {
     }
 
     /// Add an event to the stream, checking for lateness
-    pub fn add_event(&mut self, event: StreamEvent) -> Result<(), String> {
+    pub fn add_event(&mut self, event: StreamEvent) -> Result<WatermarkedEventStatus> {
         // Check if event is late
         if self.watermark_gen.is_late(&event) {
             // Handle late event
@@ -346,16 +360,18 @@ impl WatermarkedStream {
                 .handle_late_event(event, &self.watermark_gen.current_watermark())
             {
                 LateEventDecision::Drop => {
-                    // Event dropped, do nothing
+                    return Ok(WatermarkedEventStatus::Dropped);
                 }
                 LateEventDecision::Process(e) => {
                     self.events.push(e);
+                    return Ok(WatermarkedEventStatus::Accepted);
                 }
                 LateEventDecision::SideOutput(_) => {
-                    // Event stored in side output
+                    return Ok(WatermarkedEventStatus::SideOutput);
                 }
                 LateEventDecision::Recompute(e) => {
                     self.events.push(e);
+                    return Ok(WatermarkedEventStatus::Accepted);
                 }
             }
         } else {
@@ -368,7 +384,7 @@ impl WatermarkedStream {
             }
         }
 
-        Ok(())
+        Ok(WatermarkedEventStatus::Accepted)
     }
 
     /// Get all events

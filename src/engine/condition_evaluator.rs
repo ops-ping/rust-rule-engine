@@ -93,7 +93,7 @@ impl ConditionEvaluator {
                 Ok(true)
             }
 
-            #[cfg(feature = "streaming")]
+            #[cfg(feature = "streaming-core")]
             ConditionGroup::StreamPattern { .. } => {
                 // Stream patterns need special handling in streaming engine
                 // Not fully supported in backward chaining context

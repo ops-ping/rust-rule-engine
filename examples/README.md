@@ -172,7 +172,7 @@ cargo run --example simple_query_demo --features backward-chaining
 ### Available Features
 - `streaming` - Enable stream processing (CEP) examples
 - `backward-chaining` - Enable goal-driven reasoning examples
-- `streaming-redis` - Redis state backend for distributed streaming
+- `streaming-redis` - Synchronous Redis state backend
 
 ### Run in Release Mode (for performance)
 ```bash

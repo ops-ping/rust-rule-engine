@@ -5,11 +5,20 @@ use crate::types::{ActionType, LogicalOperator, Operator, Value};
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 
-#[cfg(feature = "streaming")]
+#[cfg(feature = "streaming-core")]
 use std::time::Duration;
 
+#[cfg(feature = "streaming-core")]
+pub(crate) const STREAM_EVENT_CONTEXT_FACT: &str = "__rule_engine_stream_event";
+#[cfg(feature = "streaming-core")]
+pub(crate) const STREAM_EVENT_CONTEXT_SOURCE: &str = "source";
+#[cfg(feature = "streaming-core")]
+pub(crate) const STREAM_EVENT_CONTEXT_TYPE: &str = "event_type";
+#[cfg(feature = "streaming-core")]
+pub(crate) const STREAM_EVENT_CONTEXT_VALUE: &str = "event";
+
 /// Window specification for stream patterns
-#[cfg(feature = "streaming")]
+#[cfg(feature = "streaming-core")]
 #[derive(Debug, Clone, PartialEq)]
 pub struct StreamWindow {
     /// Window duration
@@ -19,7 +28,7 @@ pub struct StreamWindow {
 }
 
 /// Stream window types
-#[cfg(feature = "streaming")]
+#[cfg(feature = "streaming-core")]
 #[derive(Debug, Clone, PartialEq)]
 pub enum StreamWindowType {
     /// Sliding window - continuously moves forward
@@ -423,7 +432,7 @@ pub enum ConditionGroup {
     },
     /// Stream pattern: match events from a stream with optional time window
     /// Example: login: LoginEvent from stream("logins") over window(10 min, sliding)
-    #[cfg(feature = "streaming")]
+    #[cfg(feature = "streaming-core")]
     StreamPattern {
         /// Variable to bind the event to (e.g., "login")
         var_name: String,
@@ -496,7 +505,7 @@ impl ConditionGroup {
     }
 
     /// Create a stream pattern condition - matches events from a stream
-    #[cfg(feature = "streaming")]
+    #[cfg(feature = "streaming-core")]
     pub fn stream_pattern(
         var_name: String,
         event_type: Option<String>,
@@ -536,7 +545,7 @@ impl ConditionGroup {
                 // For now, return false - these will be handled by the engine
                 false
             }
-            #[cfg(feature = "streaming")]
+            #[cfg(feature = "streaming-core")]
             ConditionGroup::StreamPattern { .. } => {
                 // Stream patterns need special handling in RETE engine with stream nodes
                 // For now, return false - these will be handled by the streaming engine
@@ -576,7 +585,7 @@ impl ConditionGroup {
                 // For now, return true to allow the rule to continue evaluation
                 true
             }
-            #[cfg(feature = "streaming")]
+            #[cfg(feature = "streaming-core")]
             ConditionGroup::StreamPattern { .. } => {
                 // Stream patterns need special handling in RETE engine with stream nodes
                 // They will be evaluated by the streaming engine, not here

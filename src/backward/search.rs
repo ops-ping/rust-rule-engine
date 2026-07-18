@@ -574,7 +574,7 @@ impl DepthFirstSearch {
                     .evaluate_conditions(group, facts)
                     .unwrap_or(false)
             }
-            #[cfg(feature = "streaming")]
+            #[cfg(feature = "streaming-core")]
             ConditionGroup::StreamPattern { .. } => {
                 // StreamPattern cannot be proven backward; evaluate against current facts.
                 self.executor

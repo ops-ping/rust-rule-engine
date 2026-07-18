@@ -690,6 +690,11 @@ fn parse_when_clause(when_clause: &str) -> Result<ConditionGroup> {
         return parse_and_parts(parts);
     }
 
+    #[cfg(feature = "streaming-core")]
+    if clause.contains(" from stream(") {
+        return parse_stream_pattern_condition(clause);
+    }
+
     // Handle NOT
     if clause.trim_start().starts_with('!') {
         let inner = clause.trim_start()[1..].trim();
@@ -723,6 +728,32 @@ fn parse_when_clause(when_clause: &str) -> Result<ConditionGroup> {
 
     // Single condition
     parse_single_condition(clause)
+}
+
+#[cfg(feature = "streaming-core")]
+fn parse_stream_pattern_condition(clause: &str) -> Result<ConditionGroup> {
+    use crate::engine::rule::{StreamWindow, StreamWindowType};
+    use crate::parser::grl::stream_syntax::{parse_stream_pattern, WindowType};
+
+    let (_, pattern) =
+        parse_stream_pattern(clause).map_err(|error| RuleEngineError::ParseError {
+            message: format!("Failed to parse stream pattern: {error:?}"),
+        })?;
+    let window = pattern.source.window.map(|window| StreamWindow {
+        duration: window.duration,
+        window_type: match window.window_type {
+            WindowType::Sliding => StreamWindowType::Sliding,
+            WindowType::Tumbling => StreamWindowType::Tumbling,
+            WindowType::Session { timeout } => StreamWindowType::Session { timeout },
+        },
+    });
+
+    Ok(ConditionGroup::stream_pattern(
+        pattern.var_name,
+        pattern.event_type,
+        pattern.source.stream_name,
+        window,
+    ))
 }
 
 /// Strip outer parentheses if they are balanced
@@ -1758,6 +1789,38 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "streaming-core")]
+    #[test]
+    fn test_parse_stream_pattern() {
+        let grl = r#"
+        rule "RecentLogin" {
+            when
+                login: LoginEvent from stream("logins") over window(10 min, sliding)
+            then
+                Alert.recent_login = true;
+        }
+        "#;
+
+        let rules = GRLParserNoRegex::parse_rules(grl).unwrap();
+        match &rules[0].conditions {
+            ConditionGroup::StreamPattern {
+                var_name,
+                event_type,
+                stream_name,
+                window,
+            } => {
+                assert_eq!(var_name, "login");
+                assert_eq!(event_type.as_deref(), Some("LoginEvent"));
+                assert_eq!(stream_name, "logins");
+                assert_eq!(
+                    window.as_ref().map(|window| window.duration.as_secs()),
+                    Some(600)
+                );
+            }
+            other => panic!("Expected stream pattern, got {other:?}"),
+        }
+    }
+
     #[test]
     fn test_parse_multiple_rules() {
         let grl = r#"
@@ -1839,7 +1902,11 @@ mod tests {
                 // Check the condition
                 match &rules[0].conditions {
                     ConditionGroup::Single(cond) => {
-                        assert_eq!(cond.field, "User.role");
+                        assert!(matches!(
+                            &cond.expression,
+                            crate::engine::rule::ConditionExpression::Field(field)
+                                if field == "User.role"
+                        ));
                         assert_eq!(cond.operator, crate::types::Operator::In);
                         // Value should be an array
                         match &cond.value {

@@ -603,6 +603,24 @@ impl StateStore {
         Ok(checkpoint_id)
     }
 
+    /// Create an automatic checkpoint when the configured interval has elapsed.
+    pub fn checkpoint_if_due(&mut self, name: impl Into<String>) -> StateResult<Option<String>> {
+        if !self.config.auto_checkpoint {
+            return Ok(None);
+        }
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or(Duration::ZERO)
+            .as_millis() as u64;
+        let last = *self.last_checkpoint.read().unwrap();
+        if now.saturating_sub(last) < self.config.checkpoint_interval.as_millis() as u64 {
+            return Ok(None);
+        }
+
+        self.checkpoint(name).map(Some)
+    }
+
     /// Restore state from a checkpoint
     pub fn restore(&mut self, checkpoint_id: &str) -> StateResult<()> {
         match &self.config.backend {

@@ -685,10 +685,44 @@ impl RustRuleEngine {
                 Ok(true)
             }
 
-            #[cfg(feature = "streaming")]
-            ConditionGroup::StreamPattern { .. } => {
-                // Stream patterns are handled by the streaming engine, not here
-                // For forward chaining context, return true to allow rule evaluation
+            #[cfg(feature = "streaming-core")]
+            ConditionGroup::StreamPattern {
+                var_name,
+                event_type,
+                stream_name,
+                ..
+            } => {
+                use crate::engine::rule::{
+                    STREAM_EVENT_CONTEXT_FACT, STREAM_EVENT_CONTEXT_SOURCE,
+                    STREAM_EVENT_CONTEXT_TYPE, STREAM_EVENT_CONTEXT_VALUE,
+                };
+
+                let Some(Value::Object(context)) = facts.get(STREAM_EVENT_CONTEXT_FACT) else {
+                    return Ok(false);
+                };
+                let source_matches = matches!(
+                    context.get(STREAM_EVENT_CONTEXT_SOURCE),
+                    Some(Value::String(source)) if source == stream_name
+                );
+                let type_matches = match event_type {
+                    Some(expected) => matches!(
+                        context.get(STREAM_EVENT_CONTEXT_TYPE),
+                        Some(Value::String(actual)) if actual == expected
+                    ),
+                    None => true,
+                };
+
+                if !source_matches || !type_matches {
+                    return Ok(false);
+                }
+
+                let event = context
+                    .get(STREAM_EVENT_CONTEXT_VALUE)
+                    .cloned()
+                    .ok_or_else(|| RuleEngineError::EvaluationError {
+                        message: "Stream event context is missing its event value".to_string(),
+                    })?;
+                facts.set(var_name, event);
                 Ok(true)
             }
         }
@@ -1057,14 +1091,13 @@ impl RustRuleEngine {
                             if self.config.debug_mode {
                                 println!("      Function error: {}", e);
                             }
-                            false
+                            return Err(e);
                         }
                     }
                 } else {
-                    if self.config.debug_mode {
-                        println!("      Function '{}' not found", name);
-                    }
-                    false
+                    return Err(RuleEngineError::EvaluationError {
+                        message: format!("custom function '{name}' is not registered"),
+                    });
                 }
             }
             ConditionExpression::Test { name, args } => {
@@ -1109,7 +1142,7 @@ impl RustRuleEngine {
                             if self.config.debug_mode {
                                 println!("      Test function error: {}", e);
                             }
-                            false
+                            return Err(e);
                         }
                     }
                 } else {

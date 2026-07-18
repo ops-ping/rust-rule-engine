@@ -5,6 +5,7 @@
 
 #[cfg(feature = "backward-chaining")]
 use rust_rule_engine::backward::{BackwardEngine, FactKey, ProofGraph};
+#[cfg(feature = "backward-chaining")]
 use rust_rule_engine::{Facts, KnowledgeBase, Value};
 
 #[test]

@@ -296,6 +296,8 @@ impl Operator {
                         || (matches!(right, Value::String(s) if s == "null"));
 
                     left_is_null == right_is_null
+                } else if Self::are_numeric(left, right) {
+                    left.to_number() == right.to_number()
                 } else {
                     left == right
                 }
@@ -309,6 +311,8 @@ impl Operator {
                         || (matches!(right, Value::String(s) if s == "null"));
 
                     left_is_null != right_is_null
+                } else if Self::are_numeric(left, right) {
+                    left.to_number() != right.to_number()
                 } else {
                     left != right
                 }
@@ -386,6 +390,11 @@ impl Operator {
                 }
             }
         }
+    }
+
+    fn are_numeric(left: &Value, right: &Value) -> bool {
+        matches!(left, Value::Integer(_) | Value::Number(_))
+            && matches!(right, Value::Integer(_) | Value::Number(_))
     }
 }
 

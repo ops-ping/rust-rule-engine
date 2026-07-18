@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 // Stream syntax parser module
-#[cfg(feature = "streaming")]
+#[cfg(feature = "streaming-core")]
 pub mod stream_syntax;
 
 // Cached main regexes - compiled once at startup
@@ -1053,7 +1053,7 @@ impl GRLParser {
 
         // === STREAM PATTERNS ===
         // Check for stream pattern syntax: "var: Type from stream(...)"
-        #[cfg(feature = "streaming")]
+        #[cfg(feature = "streaming-core")]
         if clause_to_parse.contains("from stream(") {
             return self.parse_stream_pattern_condition(clause_to_parse);
         }
@@ -1689,7 +1689,7 @@ impl GRLParser {
 
     /// Parse stream pattern condition
     /// Example: "login: LoginEvent from stream(\"logins\") over window(10 min, sliding)"
-    #[cfg(feature = "streaming")]
+    #[cfg(feature = "streaming-core")]
     fn parse_stream_pattern_condition(&self, clause: &str) -> Result<ConditionGroup> {
         use crate::engine::rule::{StreamWindow, StreamWindowType};
         use crate::parser::grl::stream_syntax::parse_stream_pattern;

@@ -425,6 +425,55 @@ impl LogicalOperator {
 /// Represents the data context for rule evaluation
 pub type Context = HashMap<String, Value>;
 
+/// The kind of value a registered custom function returns.
+///
+/// Declaring a kind lets the engine lint rule files at load time
+/// (see `RustRuleEngine::validate_function_usage`) so authors get
+/// "raw scalar needs calibration" instead of a wrong decision at runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReturnKind {
+    /// Uncalibrated numeric result. Not comparable in `when`; assign it to a
+    /// fact in `then` or pass it through a calibrating function first.
+    RawScalar,
+    /// Calibrated numeric result (percentile, p-value, z-score). May be
+    /// compared with any ordering operator.
+    CalibratedScalar,
+    /// Boolean result. May be used in `test(...)` or compared with `==`/`!=`.
+    Boolean,
+    /// Textual result (label, identifier). Equality and string operators only.
+    Text,
+}
+
+/// How expensive a registered custom function is to evaluate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CostTier {
+    /// Cheap enough for live rule evaluation.
+    Hot,
+    /// Batch/linting-only work; must not appear in rules the engine executes.
+    Offline,
+}
+
+/// Metadata attached to a custom function via
+/// `RustRuleEngine::register_function_with_meta`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FunctionMeta {
+    /// What the function returns.
+    pub return_kind: ReturnKind,
+    /// Where the function may be called from.
+    pub cost_tier: CostTier,
+}
+
+impl FunctionMeta {
+    /// Hot-path function metadata for the given return kind.
+    #[must_use]
+    pub fn hot(return_kind: ReturnKind) -> Self {
+        Self {
+            return_kind,
+            cost_tier: CostTier::Hot,
+        }
+    }
+}
+
 /// Action types that can be performed when a rule matches
 #[derive(Debug, Clone, PartialEq)]
 pub enum ActionType {

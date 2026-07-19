@@ -1325,6 +1325,13 @@ impl GRLParser {
             return Ok(Value::Number(float_val));
         }
 
+        // Whole-value function call (e.g., "risk_score(Order.total, \"w30\")").
+        // Kept as an expression so the engine can dispatch registered custom
+        // functions when executing the assignment.
+        if Self::is_function_call(trimmed) {
+            return Ok(Value::Expression(trimmed.to_string()));
+        }
+
         // Expression with arithmetic operators (e.g., "Order.quantity * Order.price")
         // Detect: contains operators AND (contains field reference OR multiple tokens)
         if self.is_expression(trimmed) {
@@ -1366,6 +1373,22 @@ impl GRLParser {
 
         // Rest must be alphanumeric or underscore
         s.chars().all(|c| c.is_alphanumeric() || c == '_')
+    }
+
+    /// Check if a string is a single `name(args)` function call.
+    fn is_function_call(s: &str) -> bool {
+        let Some(open) = s.find('(') else {
+            return false;
+        };
+        if !s.ends_with(')') || open == 0 {
+            return false;
+        }
+        let name = s[..open].trim_end();
+        let mut chars = name.chars();
+        chars
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
     }
 
     /// Check if a string is an arithmetic expression

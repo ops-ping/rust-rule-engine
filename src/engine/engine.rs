@@ -7,7 +7,7 @@ use crate::engine::{
     workflow::WorkflowEngine,
 };
 use crate::errors::{Result, RuleEngineError};
-use crate::types::{ActionType, Operator, Value};
+use crate::types::{ActionType, CostTier, FunctionMeta, Operator, ReturnKind, Value};
 use chrono::{DateTime, Utc};
 use log::info;
 use std::collections::HashMap;
@@ -18,6 +18,32 @@ pub type CustomFunction = Box<dyn Fn(&[Value], &Facts) -> Result<Value> + Send +
 
 /// Type for custom action handlers
 pub type ActionHandler = Box<dyn Fn(&HashMap<String, Value>, &Facts) -> Result<()> + Send + Sync>;
+
+/// Type for custom method implementations, called as `$Object.method(args)`.
+/// Receives the object name, the object's current value, the resolved
+/// arguments, and the facts (which the method may mutate).
+pub type CustomMethod = Box<dyn Fn(&str, &Value, &[Value], &Facts) -> Result<Value> + Send + Sync>;
+
+/// A single problem found by `RustRuleEngine::validate_function_usage`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FunctionUsageViolation {
+    /// Name of the rule the violation was found in.
+    pub rule: String,
+    /// Name of the offending function.
+    pub function: String,
+    /// Human-readable description of the problem.
+    pub message: String,
+}
+
+impl std::fmt::Display for FunctionUsageViolation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "rule \"{}\": {} — {}",
+            self.rule, self.function, self.message
+        )
+    }
+}
 
 /// Configuration options for the rule engine
 #[derive(Debug, Clone)]
@@ -61,6 +87,8 @@ pub struct RustRuleEngine {
     knowledge_base: KnowledgeBase,
     config: EngineConfig,
     custom_functions: HashMap<String, CustomFunction>,
+    custom_function_meta: HashMap<String, FunctionMeta>,
+    custom_methods: HashMap<String, CustomMethod>,
     action_handlers: HashMap<String, ActionHandler>,
     analytics: Option<RuleAnalytics>,
     agenda_manager: AgendaManager,
@@ -166,6 +194,8 @@ impl RustRuleEngine {
             knowledge_base,
             config: EngineConfig::default(),
             custom_functions: HashMap::new(),
+            custom_function_meta: HashMap::new(),
+            custom_methods: HashMap::new(),
             action_handlers: HashMap::new(),
             analytics: None,
             agenda_manager: AgendaManager::new(),
@@ -182,6 +212,8 @@ impl RustRuleEngine {
             knowledge_base,
             config,
             custom_functions: HashMap::new(),
+            custom_function_meta: HashMap::new(),
+            custom_methods: HashMap::new(),
             action_handlers: HashMap::new(),
             analytics: None,
             agenda_manager: AgendaManager::new(),
@@ -208,6 +240,285 @@ impl RustRuleEngine {
     {
         self.action_handlers
             .insert(action_type.to_string(), Box::new(handler));
+    }
+
+    /// Register a custom function together with metadata describing its
+    /// return kind and cost tier. `validate_function_usage` uses the metadata
+    /// to lint loaded rules.
+    pub fn register_function_with_meta<F>(&mut self, name: &str, meta: FunctionMeta, func: F)
+    where
+        F: Fn(&[Value], &Facts) -> Result<Value> + Send + Sync + 'static,
+    {
+        self.custom_function_meta.insert(name.to_string(), meta);
+        self.register_function(name, func);
+    }
+
+    /// Metadata for a registered custom function, if any was declared.
+    pub fn function_meta(&self, name: &str) -> Option<&FunctionMeta> {
+        self.custom_function_meta.get(name)
+    }
+
+    /// Register a custom method, callable from `then` as `$Object.method(args)`.
+    /// Custom methods take precedence over the built-in setter/getter methods.
+    pub fn register_method<F>(&mut self, name: &str, method: F)
+    where
+        F: Fn(&str, &Value, &[Value], &Facts) -> Result<Value> + Send + Sync + 'static,
+    {
+        self.custom_methods
+            .insert(name.to_string(), Box::new(method));
+    }
+
+    /// Check if a custom method is registered
+    pub fn has_method(&self, name: &str) -> bool {
+        self.custom_methods.contains_key(name)
+    }
+
+    /// Lint every rule in the knowledge base against registered function
+    /// metadata. Returns one violation per misuse:
+    ///
+    /// - functions declared `CostTier::Offline` referenced from any rule
+    /// - `ReturnKind::RawScalar` results compared in `when` (calibrate first,
+    ///   or assign to a fact in `then`)
+    /// - `ReturnKind::Boolean` compared with anything but `==`/`!=`
+    /// - `ReturnKind::Text` used with ordering operators
+    /// - `when`-clause calls to functions that are not registered at all
+    ///
+    /// Functions registered without metadata are only checked for existence.
+    pub fn validate_function_usage(&self) -> Vec<FunctionUsageViolation> {
+        let mut violations = Vec::new();
+        for rule in self.knowledge_base.get_rules() {
+            self.validate_condition_group(&rule.name, &rule.conditions, &mut violations);
+            for action in &rule.actions {
+                self.validate_action(&rule.name, action, &mut violations);
+            }
+        }
+        violations
+    }
+
+    /// Like `validate_function_usage`, but returns an error listing every
+    /// violation. Intended to gate rule loading.
+    pub fn validate_function_usage_strict(&self) -> Result<()> {
+        let violations = self.validate_function_usage();
+        if violations.is_empty() {
+            Ok(())
+        } else {
+            Err(RuleEngineError::EvaluationError {
+                message: violations
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            })
+        }
+    }
+
+    fn validate_condition_group(
+        &self,
+        rule: &str,
+        group: &crate::engine::rule::ConditionGroup,
+        violations: &mut Vec<FunctionUsageViolation>,
+    ) {
+        use crate::engine::rule::{ConditionExpression, ConditionGroup};
+        match group {
+            ConditionGroup::Single(condition) => match &condition.expression {
+                ConditionExpression::FunctionCall { name, .. } => {
+                    self.validate_when_call(rule, name, Some(&condition.operator), violations);
+                }
+                // Test CE names that are not plain identifiers are inline
+                // arithmetic expressions, not function references.
+                ConditionExpression::Test { name, .. } if Self::is_identifier(name) => {
+                    self.validate_when_call(rule, name, None, violations);
+                }
+                _ => {}
+            },
+            ConditionGroup::Compound { left, right, .. } => {
+                self.validate_condition_group(rule, left, violations);
+                self.validate_condition_group(rule, right, violations);
+            }
+            ConditionGroup::Not(inner)
+            | ConditionGroup::Exists(inner)
+            | ConditionGroup::Forall(inner) => {
+                self.validate_condition_group(rule, inner, violations);
+            }
+            ConditionGroup::Accumulate { .. } => {}
+            #[cfg(feature = "streaming-core")]
+            ConditionGroup::StreamPattern { .. } => {}
+        }
+    }
+
+    /// Validate one `when`-clause function reference. `operator` is `None`
+    /// for `test(...)` conditions, which consume the result as a boolean.
+    fn validate_when_call(
+        &self,
+        rule: &str,
+        name: &str,
+        operator: Option<&Operator>,
+        violations: &mut Vec<FunctionUsageViolation>,
+    ) {
+        let mut push = |message: String| {
+            violations.push(FunctionUsageViolation {
+                rule: rule.to_string(),
+                function: name.to_string(),
+                message,
+            });
+        };
+        if !self.custom_functions.contains_key(name) {
+            push("function is not registered".to_string());
+            return;
+        }
+        let Some(meta) = self.custom_function_meta.get(name) else {
+            return;
+        };
+        if meta.cost_tier == CostTier::Offline {
+            push("offline-tier function cannot be used in live rules".to_string());
+            return;
+        }
+        match (meta.return_kind, operator) {
+            (ReturnKind::RawScalar, _) => push(
+                "raw scalar result cannot be compared in `when`; \
+                 calibrate it or assign it to a fact in `then`"
+                    .to_string(),
+            ),
+            (ReturnKind::Boolean, Some(op))
+                if !matches!(op, Operator::Equal | Operator::NotEqual) =>
+            {
+                push("boolean result only supports `==` / `!=`".to_string());
+            }
+            (
+                ReturnKind::Text,
+                Some(
+                    Operator::GreaterThan
+                    | Operator::GreaterThanOrEqual
+                    | Operator::LessThan
+                    | Operator::LessThanOrEqual,
+                ),
+            ) => {
+                push("text result does not support ordering operators".to_string());
+            }
+            (ReturnKind::CalibratedScalar | ReturnKind::Text, None) => {
+                push("test(...) requires a boolean-returning function".to_string());
+            }
+            _ => {}
+        }
+    }
+
+    fn validate_action(
+        &self,
+        rule: &str,
+        action: &ActionType,
+        violations: &mut Vec<FunctionUsageViolation>,
+    ) {
+        let called = match action {
+            ActionType::Set {
+                value: Value::Expression(expr),
+                ..
+            } => Self::parse_call_expression(expr).map(|(name, _)| name.to_string()),
+            ActionType::Custom { action_type, .. } => Some(action_type.clone()),
+            _ => None,
+        };
+        if let Some(name) = called {
+            if let Some(meta) = self.custom_function_meta.get(&name) {
+                if meta.cost_tier == CostTier::Offline {
+                    violations.push(FunctionUsageViolation {
+                        rule: rule.to_string(),
+                        function: name,
+                        message: "offline-tier function cannot be used in live rules".to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    fn is_identifier(text: &str) -> bool {
+        let mut chars = text.chars();
+        chars
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+    }
+
+    /// Parse `name(arg, arg, ...)` into the function name and raw argument
+    /// strings. Returns `None` unless the whole expression is a single call.
+    fn parse_call_expression(expr: &str) -> Option<(&str, Vec<String>)> {
+        let expr = expr.trim();
+        let open = expr.find('(')?;
+        if !expr.ends_with(')') {
+            return None;
+        }
+        let name = expr[..open].trim();
+        if !Self::is_identifier(name) {
+            return None;
+        }
+        let inner = &expr[open + 1..expr.len() - 1];
+        let mut args = Vec::new();
+        let mut current = String::new();
+        let mut depth = 0usize;
+        let mut in_quotes = false;
+        for c in inner.chars() {
+            match c {
+                '"' => {
+                    in_quotes = !in_quotes;
+                    current.push(c);
+                }
+                '(' if !in_quotes => {
+                    depth += 1;
+                    current.push(c);
+                }
+                ')' if !in_quotes => {
+                    depth = depth.checked_sub(1)?;
+                    current.push(c);
+                }
+                ',' if !in_quotes && depth == 0 => {
+                    args.push(current.trim().to_string());
+                    current = String::new();
+                }
+                _ => current.push(c),
+            }
+        }
+        if in_quotes || depth != 0 {
+            return None;
+        }
+        let last = current.trim();
+        if !last.is_empty() {
+            args.push(last.to_string());
+        } else if !args.is_empty() {
+            // Trailing comma such as `f(a,)` is malformed.
+            return None;
+        }
+        Some((name, args))
+    }
+
+    /// Resolve one `when`-clause function argument: fact reference first,
+    /// then unquoted string literal, then the bare text.
+    fn resolve_when_argument(arg: &str, facts: &Facts) -> Value {
+        if let Some(value) = facts.get_nested(arg).or_else(|| facts.get(arg)) {
+            return value;
+        }
+        let trimmed = arg.trim();
+        if trimmed.len() >= 2 && trimmed.starts_with('"') && trimmed.ends_with('"') {
+            return Value::String(trimmed[1..trimmed.len() - 1].to_string());
+        }
+        Value::String(arg.to_string())
+    }
+
+    /// Resolve one raw call argument the same way `then`-clause assignment
+    /// arguments resolve: quoted string literal, then number, then fact
+    /// reference, then bare literal.
+    fn resolve_call_argument(arg: &str, facts: &Facts) -> Value {
+        let trimmed = arg.trim();
+        if trimmed.len() >= 2 && trimmed.starts_with('"') && trimmed.ends_with('"') {
+            return Value::String(trimmed[1..trimmed.len() - 1].to_string());
+        }
+        if let Ok(int_val) = trimmed.parse::<i64>() {
+            return Value::Integer(int_val);
+        }
+        if let Ok(float_val) = trimmed.parse::<f64>() {
+            return Value::Number(float_val);
+        }
+        facts
+            .get_nested(trimmed)
+            .or_else(|| facts.get(trimmed))
+            .unwrap_or_else(|| Value::String(trimmed.to_string()))
     }
 
     /// Enable analytics with custom configuration
@@ -1071,12 +1382,7 @@ impl RustRuleEngine {
                     // Resolve arguments from facts
                     let arg_values: Vec<Value> = args
                         .iter()
-                        .map(|arg| {
-                            facts
-                                .get_nested(arg)
-                                .or_else(|| facts.get(arg))
-                                .unwrap_or(Value::String(arg.clone()))
-                        })
+                        .map(|arg| Self::resolve_when_argument(arg, facts))
                         .collect();
 
                     // Call the function
@@ -1112,10 +1418,7 @@ impl RustRuleEngine {
                     let arg_values: Vec<Value> = args
                         .iter()
                         .map(|arg| {
-                            let resolved = facts
-                                .get_nested(arg)
-                                .or_else(|| facts.get(arg))
-                                .unwrap_or(Value::String(arg.clone()));
+                            let resolved = Self::resolve_when_argument(arg, facts);
                             if self.config.debug_mode {
                                 println!("      Resolving arg '{}' -> {:?}", arg, resolved);
                             }
@@ -1238,8 +1541,21 @@ impl RustRuleEngine {
                 // Evaluate expression if value is an Expression
                 let evaluated_value = match value {
                     Value::Expression(expr) => {
-                        // Evaluate the expression with current facts
-                        crate::expression::evaluate_expression(expr, facts)?
+                        // A registered custom function call as the whole RHS
+                        // (e.g. `Decision.score = risk_score(Order.total)`)
+                        // dispatches directly; anything else evaluates as an
+                        // arithmetic expression with current facts.
+                        match Self::parse_call_expression(expr) {
+                            Some((name, args)) if self.custom_functions.contains_key(name) => {
+                                let arg_values: Vec<Value> = args
+                                    .iter()
+                                    .map(|arg| Self::resolve_call_argument(arg, facts))
+                                    .collect();
+                                let function = &self.custom_functions[name];
+                                function(&arg_values, facts)?
+                            }
+                            _ => crate::expression::evaluate_expression(expr, facts)?,
+                        }
                     }
                     _ => value.clone(),
                 };
@@ -1800,6 +2116,22 @@ impl RustRuleEngine {
                 message: format!("Object '{}' not found in facts", object_name),
             });
         };
+
+        // Custom methods take precedence over built-ins.
+        if let Some(custom) = self.custom_methods.get(method) {
+            let resolved: Vec<Value> = args
+                .iter()
+                .map(|arg| match arg {
+                    Value::String(text) => facts
+                        .get_nested(text)
+                        .or_else(|| facts.get(text))
+                        .unwrap_or_else(|| arg.clone()),
+                    Value::Expression(expr) => Self::resolve_call_argument(expr, facts),
+                    _ => arg.clone(),
+                })
+                .collect();
+            return custom(object_name, &object_value, &resolved, facts).map(|v| v.to_string());
+        }
 
         let method_lower = method.to_lowercase();
 

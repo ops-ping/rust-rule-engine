@@ -1386,6 +1386,13 @@ fn parse_value(value_str: &str) -> Result<Value> {
         return Ok(Value::Number(float_val));
     }
 
+    // Whole-value function call (e.g., "risk_score(Order.total, \"w30\")").
+    // Kept as an expression so the engine can dispatch registered custom
+    // functions when executing the assignment.
+    if is_function_call(trimmed) {
+        return Ok(Value::Expression(trimmed.to_string()));
+    }
+
     // Expression (contains arithmetic or field reference)
     if is_expression(trimmed) {
         return Ok(Value::Expression(trimmed.to_string()));
@@ -1417,6 +1424,17 @@ fn is_identifier(s: &str) -> bool {
     }
 
     s.chars().all(|c| c.is_alphanumeric() || c == '_')
+}
+
+/// Check if string is a single `name(args)` function call
+fn is_function_call(s: &str) -> bool {
+    let Some(open) = s.find('(') else {
+        return false;
+    };
+    if !s.ends_with(')') || open == 0 {
+        return false;
+    }
+    is_identifier(s[..open].trim_end())
 }
 
 /// Check if string is an expression

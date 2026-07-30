@@ -34,7 +34,8 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+use web_time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "streaming-redis")]
 use redis::{Client, Commands};

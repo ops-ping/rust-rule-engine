@@ -8,7 +8,8 @@ use super::event::StreamEvent;
 use crate::Result;
 
 use std::collections::VecDeque;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+use web_time::{SystemTime, UNIX_EPOCH};
 
 /// Watermark representing event-time progress
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

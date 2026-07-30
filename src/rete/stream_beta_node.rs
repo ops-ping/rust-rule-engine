@@ -18,7 +18,8 @@ use crate::rete::stream_alpha_node::StreamAlphaNode;
 use crate::streaming::event::StreamEvent;
 use crate::types::Value;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
+use web_time::SystemTime;
 
 /// Input to a beta node - can be either an alpha node or another beta node
 /// This enables nested beta nodes for 3+ stream joins

@@ -12,7 +12,7 @@ use crate::{Result, RuleEngineError};
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{SystemTime, UNIX_EPOCH};
+use web_time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex, RwLock};
 use tokio::time::interval;
 

@@ -5,7 +5,7 @@
 use crate::types::Value;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::{SystemTime, UNIX_EPOCH};
+use web_time::{SystemTime, UNIX_EPOCH};
 
 /// A streaming event with payload and metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]

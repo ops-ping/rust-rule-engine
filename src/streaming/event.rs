@@ -197,7 +197,7 @@ impl Default for EventPattern {
 
 // Simple UUID v4 generator (basic implementation)
 fn uuid_v4() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use web_time::{SystemTime, UNIX_EPOCH};
 
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)

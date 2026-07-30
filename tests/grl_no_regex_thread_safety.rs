@@ -1,4 +1,4 @@
-use rust_rule_engine::GRLParserNoRegex;
+use rust_rule_engine::GRLParser;
 
 use std::sync::Arc;
 use std::thread;
@@ -22,7 +22,7 @@ fn parses_identical_grl_in_parallel() {
         let grl = Arc::clone(&grl);
         handles.push(thread::spawn(move || {
             for _ in 0..50 {
-                let rules = GRLParserNoRegex::parse_rules(&grl).expect("parse should succeed");
+                let rules = GRLParser::parse_rules(&grl).expect("parse should succeed");
                 assert_eq!(rules.len(), 1);
                 assert_eq!(rules[0].name, "VIPRule");
             }
@@ -59,7 +59,7 @@ fn parses_distinct_grl_in_parallel() {
     for (expected_name, grl) in inputs {
         handles.push(thread::spawn(move || {
             for _ in 0..100 {
-                let rules = GRLParserNoRegex::parse_rules(grl).expect("parse should succeed");
+                let rules = GRLParser::parse_rules(grl).expect("parse should succeed");
                 assert_eq!(rules.len(), 1);
                 assert_eq!(rules[0].name, expected_name);
             }

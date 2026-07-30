@@ -450,63 +450,84 @@ impl RustRuleEngine {
             return None;
         }
         let inner = &expr[open + 1..expr.len() - 1];
-        let mut args = Vec::new();
-        let mut current = String::new();
-        let mut depth = 0usize;
-        let mut in_quotes = false;
-        for c in inner.chars() {
-            match c {
-                '"' => {
-                    in_quotes = !in_quotes;
-                    current.push(c);
-                }
-                '(' if !in_quotes => {
-                    depth += 1;
-                    current.push(c);
-                }
-                ')' if !in_quotes => {
-                    depth = depth.checked_sub(1)?;
-                    current.push(c);
-                }
-                ',' if !in_quotes && depth == 0 => {
-                    args.push(current.trim().to_string());
-                    current = String::new();
-                }
-                _ => current.push(c),
-            }
+        if inner.trim().is_empty() {
+            return Some((name, Vec::new()));
         }
-        if in_quotes || depth != 0 {
-            return None;
-        }
-        let last = current.trim();
-        if !last.is_empty() {
-            args.push(last.to_string());
-        } else if !args.is_empty() {
-            // Trailing comma such as `f(a,)` is malformed.
-            return None;
-        }
+        let args = crate::parser::grl::GRLParser::split_top_level_comma(inner).ok()?;
         Some((name, args))
     }
 
-    /// Resolve one `when`-clause function argument: fact reference first,
-    /// then unquoted string literal, then the bare text.
+    /// Recursively resolve facts/literals inside a Value (such as Value::Array)
+    pub fn resolve_value_facts(val: Value, facts: &Facts) -> Value {
+        match val {
+            Value::Array(arr) => Value::Array(
+                arr.into_iter()
+                    .map(|item| Self::resolve_value_facts(item, facts))
+                    .collect(),
+            ),
+            Value::String(s) => {
+                let trimmed = s.trim();
+                if let Some(fact_val) = facts.get_nested(trimmed).or_else(|| facts.get(trimmed)) {
+                    fact_val
+                } else if (trimmed.starts_with('"') && trimmed.ends_with('"'))
+                    || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
+                {
+                    Value::String(trimmed[1..trimmed.len() - 1].to_string())
+                } else {
+                    Value::String(s)
+                }
+            }
+            Value::Expression(s) => {
+                let trimmed = s.trim();
+                if let Some(fact_val) = facts.get_nested(trimmed).or_else(|| facts.get(trimmed)) {
+                    fact_val
+                } else {
+                    Value::String(s)
+                }
+            }
+            other => other,
+        }
+    }
+
+    /// Resolve one `when`-clause function argument: array literal,
+    /// fact reference, quoted string literal, number, or bare text.
     fn resolve_when_argument(arg: &str, facts: &Facts) -> Value {
-        if let Some(value) = facts.get_nested(arg).or_else(|| facts.get(arg)) {
+        let trimmed = arg.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            if let Ok(parsed_val) = crate::parser::grl::GRLParser::parse_value(trimmed) {
+                return Self::resolve_value_facts(parsed_val, facts);
+            }
+        }
+        if let Some(value) = facts.get_nested(trimmed).or_else(|| facts.get(trimmed)) {
             return value;
         }
-        let trimmed = arg.trim();
-        if trimmed.len() >= 2 && trimmed.starts_with('"') && trimmed.ends_with('"') {
+        if (trimmed.starts_with('"') && trimmed.ends_with('"'))
+            || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
+        {
             return Value::String(trimmed[1..trimmed.len() - 1].to_string());
         }
-        Value::String(arg.to_string())
+        if let Ok(int_val) = trimmed.parse::<i64>() {
+            return Value::Integer(int_val);
+        }
+        if let Ok(float_val) = trimmed.parse::<f64>() {
+            return Value::Number(float_val);
+        }
+        Value::String(trimmed.to_string())
     }
 
     /// Resolve one raw call argument the same way `then`-clause assignment
-    /// arguments resolve: quoted string literal, then number, then fact
-    /// reference, then bare literal.
+    /// arguments resolve: array literal, quoted string literal, number,
+    /// fact reference, or bare literal.
     fn resolve_call_argument(arg: &str, facts: &Facts) -> Value {
         let trimmed = arg.trim();
-        if trimmed.len() >= 2 && trimmed.starts_with('"') && trimmed.ends_with('"') {
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            if let Ok(parsed_val) = crate::parser::grl::GRLParser::parse_value(trimmed) {
+                return Self::resolve_value_facts(parsed_val, facts);
+            }
+        }
+        if (trimmed.starts_with('"') && trimmed.ends_with('"'))
+            || (trimmed.starts_with('\'') && trimmed.ends_with('\''))
+        {
             return Value::String(trimmed[1..trimmed.len() - 1].to_string());
         }
         if let Ok(int_val) = trimmed.parse::<i64>() {

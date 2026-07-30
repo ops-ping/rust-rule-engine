@@ -101,6 +101,7 @@ fn data_driven_grl_cases() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         });
         engine.register_action_handler("LogToDatabase", |_, _| Ok(()));
+        engine.register_action_handler("calculateFinalOrderAmount", |_, _| Ok(()));
         engine.register_action_handler("SendAlert", |_, facts| {
             if let Some(Value::Object(alert_obj)) = facts.get("Alert") {
                 let mut updated = alert_obj.clone();

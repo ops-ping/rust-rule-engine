@@ -75,13 +75,13 @@ impl GrlReteLoader {
         Ok(loaded_count)
     }
 
-    /// Load GRL text via the **no-regex** parser (the authoritative, thread-safe
-    /// parser) into the RETE engine, with the engine's real action closures.
+    /// Load GRL text via the thread-safe parser into the RETE engine,
+    /// with the engine's real action closures.
     pub fn load_from_string_no_regex(
         grl_text: &str,
         engine: &mut IncrementalEngine,
     ) -> Result<usize> {
-        let rules = crate::GRLParserNoRegex::parse_rules(grl_text)?;
+        let rules = crate::GRLParser::parse_rules(grl_text)?;
         Self::load_rules(rules, engine)
     }
 
